@@ -1,31 +1,17 @@
-# Claudestine Default Workflow
-# This workflow is used when no project or global workflow is found.
-# Copy and customise this file to:
-#   - Project: .claudestine/workflow.yaml
-#   - Global:  ~/.config/claudestine/workflow.yaml
-
 name: Implementation Loop
 version: 1
 description: Default Claudestine workflow for plan implementation
 
-# Variables available in prompts and commands:
-#   {plan_path}    - Full path to the plan file
-#   {working_dir}  - Working directory for Claude
-
 steps:
-  # Step 1: Run /implement_plan until completion or verification needed
   - name: implement
     type: claude
     prompt: |
-      /implement_plan @{plan_path} ensure to stop for manual verification items.
+      Read @{plan_path} and implement ONLY the next incomplete phase (marked as "pending" or "in progress").
+      Do not implement multiple phases - stop after completing one phase.
+      Ensure to stop for any manual verification items listed in the phase.
+      Update the phase status to "complete" when done.
     stream: true
-    stop_on:
-      - "manual verification"
-      - "needs human review"
-      - "stopping for verification"
-      - "please verify"
 
-  # Step 2: Automated verification using available tools
   - name: verify
     type: claude
     prompt: |
@@ -34,11 +20,9 @@ steps:
       - uv run -c to run test commands
       - Spin up services and test endpoints
 
-      Ensure everything is working. Report success/failure with details.
+      Ensure everything is working. Report success/failure with details. Pause after verification.
     stream: true
-    require_success: true
 
-  # Step 3: Update the plan summary for session continuity
   - name: update_summary
     type: claude
     prompt: |
@@ -49,16 +33,12 @@ steps:
       - What's next
     stream: true
 
-  # Step 4: Git commit and push (no Claude watermark)
   - name: commit
-    type: shell
-    commands:
-      - git add -A
-      - git commit -m "{commit_message}"
-      - git push
-    skip_if_clean: true
+    type: claude
+    prompt: |
+      Git commit with conventional commits on all the changes, outside of the things that are gitignored of course. Do not leave a claude code watermark. Push the changes.
+    stream: true
 
-  # Step 5: Clear session for next iteration
   - name: clear
     type: internal
     action: clear_session
