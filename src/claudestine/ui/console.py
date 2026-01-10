@@ -191,12 +191,9 @@ class Console:
         if self._progress:
             renderables.append(self._progress)
 
-        # Step outputs (collapsed old ones, expanded current one)
-        for i, step in enumerate(self.steps):
-            # Auto-collapse completed steps except the last few
-            if i < len(self.steps) - 2 and step.status in ("success", "skipped"):
-                step.collapsed = True
-            renderables.append(step.render())
+        # Only show the current step (last one in the list)
+        if self.steps:
+            renderables.append(self.steps[-1].render())
 
         # Footer with hint
         footer = Text("Press Ctrl+C to stop", style="dim")

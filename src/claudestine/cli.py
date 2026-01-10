@@ -233,7 +233,14 @@ def _interactive_mode():
 
 
 def _resolve_working_dir(plan_path: Path, working_dir: Path | None) -> Path:
-    """Resolve working directory from plan path."""
+    """Resolve working directory from plan path.
+
+    Priority:
+    1. Explicit working_dir if provided
+    2. Git repository root
+    3. Directory containing pyproject.toml or package.json
+    4. Plan file's parent directory
+    """
     if working_dir is not None:
         return working_dir.resolve()
 
@@ -243,6 +250,28 @@ def _resolve_working_dir(plan_path: Path, working_dir: Path | None) -> Path:
     if "thoughts" in resolved.parts:
         thoughts_index = resolved.parts.index("thoughts")
         resolved = Path(*resolved.parts[:thoughts_index])
+        return resolved
+
+    # Try to find git root
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=resolved,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return Path(result.stdout.strip())
+    except Exception:
+        pass
+
+    # Try to find project root by looking for pyproject.toml or package.json
+    current = resolved
+    while current != current.parent:
+        if (current / "pyproject.toml").exists() or (current / "package.json").exists():
+            return current
+        current = current.parent
 
     return resolved
 
@@ -261,7 +290,6 @@ def _get_default_workflow() -> Workflow:
                 type=StepType.CLAUDE,
                 prompt="/implement_plan @{plan_path} ensure to stop for manual verification items.",
                 stream=True,
-                stop_on=["manual verification", "needs human review", "stopping for verification"],
             ),
             Step(
                 name="verify",
@@ -271,9 +299,8 @@ def _get_default_workflow() -> Workflow:
 - uv run -c to run test commands
 - Spin up services and test endpoints
 
-Ensure everything is working. Report success/failure with details.""",
+Ensure everything is working. Report success/failure with details. Pause after verification.""",
                 stream=True,
-                require_success=True,
             ),
             Step(
                 name="update_summary",
@@ -287,13 +314,9 @@ session can understand and continue. Include:
             ),
             Step(
                 name="commit",
-                type=StepType.SHELL,
-                commands=[
-                    "git add -A",
-                    'git commit -m "{commit_message}"',
-                    "git push",
-                ],
-                skip_if_clean=True,
+                type=StepType.CLAUDE,
+                prompt="""Git commit with conventional commits on all the changes, outside of the things that are gitignored of course. Do not leave a claude code watermark. Push the changes.""",
+                stream=True,
             ),
             Step(
                 name="clear",

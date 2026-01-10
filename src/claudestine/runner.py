@@ -228,6 +228,9 @@ class ClaudeRunner:
         """Build the Claude CLI command."""
         cmd = ["claude", "-p", prompt]
 
+        # Allow Claude to execute tools without confirmation
+        cmd.append("--dangerously-skip-permissions")
+
         # Use stream-json for real-time output
         if streaming:
             cmd.extend(["--output-format", "stream-json", "--verbose"])

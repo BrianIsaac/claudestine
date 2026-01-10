@@ -75,15 +75,6 @@ class WorkflowExecutor:
                             )
                             return False
 
-                    # Check if we should stop the loop
-                    if result.stop_reason == "complete":
-                        self.console.success("Workflow complete!")
-                        return True
-
-                    if result.stop_reason == "clean":
-                        # No changes, skip remaining steps in this iteration
-                        break
-
                 # Check plan progress after each full iteration
                 if self._is_plan_complete():
                     self.console.success("Plan fully implemented!")
@@ -172,10 +163,6 @@ class WorkflowExecutor:
             stop_patterns=step.stop_on,
         )
 
-        # Check for completion patterns in output
-        if self._check_completion(result.output):
-            result.stop_reason = "complete"
-
         return result
 
     def _execute_shell_step(self, step: Step, output) -> ClaudeResult:
@@ -242,22 +229,6 @@ class WorkflowExecutor:
         for key, value in self.variables.items():
             result = result.replace(f"{{{key}}}", str(value))
         return result
-
-    def _check_completion(self, output: str) -> bool:
-        """Check if output indicates plan completion."""
-        completion_patterns = [
-            r"all\s+phases?\s+complete",
-            r"implementation\s+complete",
-            r"plan\s+(?:fully\s+)?implemented",
-            r"no\s+(?:more\s+)?(?:phases?|steps?)\s+(?:remaining|to\s+implement)",
-        ]
-
-        output_lower = output.lower()
-        for pattern in completion_patterns:
-            if re.search(pattern, output_lower):
-                return True
-
-        return False
 
     def _is_plan_complete(self) -> bool:
         """Check if the plan file indicates completion."""
