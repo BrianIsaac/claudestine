@@ -1,10 +1,12 @@
 """Rich console output with collapsible sections."""
 
 from contextlib import contextmanager
-from typing import Generator
+from typing import TYPE_CHECKING, Generator
 
-from rich.console import Console as RichConsole
-from rich.console import Group
+from rich.console import Console as RichConsole, Group, RenderableType
+
+if TYPE_CHECKING:
+    from claudestine.runner import ClaudeRunner
 from rich.live import Live
 from rich.panel import Panel
 from rich.progress import (
@@ -16,7 +18,6 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 from rich.rule import Rule
-from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 from rich.tree import Tree
@@ -85,7 +86,7 @@ class StepOutput:
             )
 
         # Fixed height: show last N lines only
-        visible_lines = [l for l in self.lines if l.strip()][-self.MAX_VISIBLE_LINES:]
+        visible_lines = [line for line in self.lines if line.strip()][-self.MAX_VISIBLE_LINES:]
 
         if visible_lines:
             if len(self.lines) > self.MAX_VISIBLE_LINES:
@@ -128,6 +129,16 @@ class Console:
         self._current_step_num: int = 0
         self._current_phase: int = 0
         self._total_phases: int = 0
+        self._runner: "ClaudeRunner | None" = None
+
+    def set_runner(self, runner: "ClaudeRunner") -> None:
+        """
+        Set the runner for context tracking.
+
+        Args:
+            runner: The ClaudeRunner instance.
+        """
+        self._runner = runner
 
     def start(self, plan_name: str, total_steps: int) -> None:
         """
@@ -200,18 +211,25 @@ class Console:
 
     def _render(self) -> Group:
         """Render the full display."""
-        renderables = []
+        renderables: list[RenderableType] = []
 
-        # Header with phase and step info
+        # Header with phase, step, and context info
         header = Table.grid(expand=True)
         header.add_column()
         header.add_column(justify="right")
         phase_info = f"Phase {self._current_phase}"
         if self._total_phases > 0:
             phase_info += f"/{self._total_phases}"
+
+        # Add context usage if runner is available
+        context_info = ""
+        if self._runner:
+            tokens, window, pct = self._runner.get_context_usage()
+            context_info = f"[dim]Context: {tokens // 1000}k/{window // 1000}k ({pct:.1f}%)[/dim] "
+
         header.add_row(
-            f"[bold cyan]Claudestine[/bold cyan] [dim]v0.2.0[/dim]",
-            f"[dim]{phase_info} | Step {self._current_step_num}/{self._total_steps}[/dim]",
+            "[bold cyan]Claudestine[/bold cyan] [dim]v0.2.0[/dim]",
+            f"{context_info}[dim]{phase_info} | Step {self._current_step_num}/{self._total_steps}[/dim]",
         )
         renderables.append(Panel(header, border_style="cyan"))
 

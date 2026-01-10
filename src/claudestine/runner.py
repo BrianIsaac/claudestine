@@ -4,7 +4,7 @@ import json
 import os
 import re
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
@@ -41,6 +41,12 @@ class ClaudeRunner:
         self.working_dir = working_dir
         self.allowed_tools = allowed_tools
         self._session_id: str | None = None
+        # Token tracking - stores latest values (not accumulated)
+        self._input_tokens: int = 0
+        self._output_tokens: int = 0
+        self._cache_read_tokens: int = 0
+        self._cache_creation_tokens: int = 0
+        self._context_window_size: int = 200_000
 
     def run(
         self,
@@ -224,6 +230,32 @@ class ClaudeRunner:
         """Clear the current session."""
         self._session_id = None
 
+    def get_context_usage(self) -> tuple[int, int, float]:
+        """
+        Get current context usage.
+
+        The input_tokens from Claude already includes the full conversation
+        context, so we use the latest value directly.
+
+        Returns:
+            Tuple of (tokens_used, context_window_size, percentage).
+        """
+        # Total context = input tokens + any cache tokens (they all count toward context)
+        tokens_used = (
+            self._input_tokens
+            + self._cache_read_tokens
+            + self._cache_creation_tokens
+        )
+        percentage = (tokens_used / self._context_window_size) * 100
+        return tokens_used, self._context_window_size, percentage
+
+    def reset_token_tracking(self) -> None:
+        """Reset token tracking (call after clear_session)."""
+        self._input_tokens = 0
+        self._output_tokens = 0
+        self._cache_read_tokens = 0
+        self._cache_creation_tokens = 0
+
     def _build_command(self, prompt: str, streaming: bool = True) -> list[str]:
         """Build the Claude CLI command."""
         cmd = ["claude", "-p", prompt]
@@ -293,6 +325,14 @@ class ClaudeRunner:
             message = data.get("message", {})
             content = message.get("content", [])
 
+            # Extract usage data - store latest values (not accumulated)
+            usage = message.get("usage", {})
+            if usage:
+                self._input_tokens = usage.get("input_tokens", 0)
+                self._output_tokens = usage.get("output_tokens", 0)
+                self._cache_creation_tokens = usage.get("cache_creation_input_tokens", 0)
+                self._cache_read_tokens = usage.get("cache_read_input_tokens", 0)
+
             lines = []
             for item in content:
                 if item.get("type") == "text":
@@ -311,9 +351,7 @@ class ClaudeRunner:
         if event_type == "result":
             result = data.get("result", "")
             if result:
-                # Don't repeat the full result, just show summary
-                cost = data.get("total_cost_usd", 0)
-                return f"[green]Done[/green] [dim](${cost:.4f})[/dim]"
+                return "[green]Done[/green]"
 
         # Skip other event types
         return ""

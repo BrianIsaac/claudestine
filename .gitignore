@@ -14,3 +14,6 @@ wheels/
 
 # Claudestine local state
 .claudestine/
+
+# Plans
+thoughts/

@@ -2,7 +2,6 @@
 
 import re
 import time
-from pathlib import Path
 from string import Template
 
 from claudestine.config import RunConfig, Step, StepType, Workflow, get_project_config_dir
@@ -39,6 +38,7 @@ class WorkflowExecutor:
         self.runner = ClaudeRunner(
             working_dir=config.working_dir,
         )
+        self.console.set_runner(self.runner)
 
         # Set up logging
         log_dir = get_project_config_dir(config.working_dir)
@@ -207,14 +207,14 @@ class WorkflowExecutor:
 
             if step.prompt:
                 prompt = self._substitute_variables(step.prompt)
-                self.console.print(f"   [dim]Prompt:[/dim]")
+                self.console.print("   [dim]Prompt:[/dim]")
                 for line in prompt.strip().split("\n")[:5]:
                     self.console.print(f"   [cyan]{line}[/cyan]")
                 if prompt.count("\n") > 5:
                     self.console.print(f"   [dim]... ({prompt.count(chr(10)) - 5} more lines)[/dim]")
 
             if step.commands:
-                self.console.print(f"   [dim]Commands:[/dim]")
+                self.console.print("   [dim]Commands:[/dim]")
                 for cmd in step.commands:
                     self.console.print(f"   [cyan]$ {cmd}[/cyan]")
 
@@ -307,6 +307,7 @@ class WorkflowExecutor:
         """Execute internal action step."""
         if step.action == "clear_session":
             self.runner.clear_session()
+            self.runner.reset_token_tracking()
             output.append("[dim]Session cleared[/dim]")
             return ClaudeResult(success=True, exit_code=0, output="Session cleared")
 

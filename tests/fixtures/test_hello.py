@@ -1,15 +1,13 @@
 """Tests for the hello module."""
 
-import pytest
-
-from hello import greet
+from tests.fixtures.hello import greet
 
 
 def test_greet_world() -> None:
-    """Test greeting World."""
+    """Test that greet returns correct greeting for World."""
     assert greet("World") == "Hello, World!"
 
 
 def test_greet_claude() -> None:
-    """Test greeting Claude."""
+    """Test that greet returns correct greeting for Claude."""
     assert greet("Claude") == "Hello, Claude!"

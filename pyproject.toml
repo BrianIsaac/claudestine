@@ -27,4 +27,7 @@ packages = ["src/claudestine"]
 [dependency-groups]
 dev = [
     "pytest>=9.0.0",
+    "mypy>=1.0.0",
+    "ruff>=0.6.0",
+    "types-pyyaml>=6.0.12.20250915",
 ]

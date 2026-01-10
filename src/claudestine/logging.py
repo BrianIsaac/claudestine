@@ -25,7 +25,7 @@ class WorkflowLogger:
         self._start_time = datetime.now()
         self._current_phase = 0
 
-        self._write(f"# Claudestine Execution Log\n\n")
+        self._write("# Claudestine Execution Log\n\n")
         self._write(f"**Plan:** {plan_name}\n")
         self._write(f"**Started:** {self._start_time.strftime('%Y-%m-%d %H:%M:%S')}\n\n")
         self._write("---\n\n")
