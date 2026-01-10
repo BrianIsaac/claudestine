@@ -130,6 +130,22 @@ class Console:
         self._current_phase: int = 0
         self._total_phases: int = 0
         self._runner: "ClaudeRunner | None" = None
+        self._paused: bool = False
+        self._manual_mode: bool = False
+
+    def set_paused(self, paused: bool) -> None:
+        """Set pause state."""
+        self._paused = paused
+        self.refresh()
+
+    def is_paused(self) -> bool:
+        """Check if paused."""
+        return self._paused
+
+    def set_manual_mode(self, manual: bool) -> None:
+        """Set manual mode state."""
+        self._manual_mode = manual
+        self.refresh()
 
     def set_runner(self, runner: "ClaudeRunner") -> None:
         """
@@ -241,9 +257,18 @@ class Console:
         if self.steps:
             renderables.append(self.steps[-1].render())
 
-        # Footer with hint
-        footer = Text("Press Ctrl+C to stop", style="dim")
-        renderables.append(Panel(footer, border_style="dim"))
+        # Footer with controls hint
+        if self._paused:
+            if self._manual_mode:
+                footer_text = "[yellow]MANUAL MODE[/yellow] - Type your prompt and press Enter"
+            else:
+                footer_text = "[yellow]PAUSED[/yellow] - Press [bold]C[/bold] to continue, [bold]M[/bold] for manual"
+            border_style = "yellow"
+        else:
+            footer_text = "[dim]Press [bold]P[/bold] to pause, [bold]M[/bold] for manual, Ctrl+C to stop[/dim]"
+            border_style = "dim"
+        footer = Text.from_markup(footer_text)
+        renderables.append(Panel(footer, border_style=border_style))
 
         return Group(*renderables)
 

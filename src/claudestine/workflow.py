@@ -4,6 +4,8 @@ import re
 import time
 from string import Template
 
+import questionary
+
 from claudestine.config import RunConfig, Step, StepType, Workflow, get_project_config_dir
 from claudestine.logging import WorkflowLogger
 from claudestine.runner import (
@@ -13,6 +15,7 @@ from claudestine.runner import (
     get_git_status,
 )
 from claudestine.ui.console import Console
+from claudestine.ui.keyboard import KeyAction, KeyboardController
 
 
 class WorkflowExecutor:
@@ -51,6 +54,10 @@ class WorkflowExecutor:
             **workflow.variables,
         }
 
+        # Keyboard controls
+        self._keyboard: KeyboardController | None = None
+        self._pending_action: KeyAction | None = None
+
     def execute(self) -> bool:
         """
         Execute the full workflow.
@@ -69,6 +76,10 @@ class WorkflowExecutor:
 
         self.console.info(f"Logging to: {self.logger.get_log_path()}")
 
+        # Start keyboard listener
+        self._keyboard = KeyboardController(self._handle_key_action)
+        self._keyboard.start()
+
         try:
             phase = 0
             max_phases = 50
@@ -79,6 +90,18 @@ class WorkflowExecutor:
 
                 # Execute each step in sequence
                 for step in self.workflow.steps:
+                    # Check for manual mode between steps
+                    if self._pending_action == KeyAction.MANUAL:
+                        self._handle_manual_mode()
+                        self._pending_action = None
+
+                    # Wait while paused (but not in manual mode)
+                    while self.console.is_paused() and self._pending_action != KeyAction.MANUAL:
+                        if self._pending_action == KeyAction.CONTINUE:
+                            self._pending_action = None
+                            break
+                        time.sleep(0.1)
+
                     step_start = time.time()
                     self.logger.log_step_start(step.name, step.type.value, phase)
 
@@ -118,7 +141,56 @@ class WorkflowExecutor:
             return False
 
         finally:
+            if self._keyboard:
+                self._keyboard.stop()
             self.console.stop()
+
+    def _handle_key_action(self, action: KeyAction) -> None:
+        """
+        Handle keyboard action from listener thread.
+
+        Args:
+            action: The key action that was triggered.
+        """
+        self._pending_action = action
+
+        if action == KeyAction.PAUSE:
+            self.runner.interrupt()
+            self.console.set_paused(True)
+        elif action == KeyAction.CONTINUE:
+            self.console.set_paused(False)
+        elif action == KeyAction.MANUAL:
+            self.runner.interrupt()
+            self.console.set_paused(True)
+            self.console.set_manual_mode(True)
+
+    def _handle_manual_mode(self) -> None:
+        """Get user input for manual mode and resume execution."""
+        # Stop Rich Live temporarily for clean input
+        self.console.stop()
+
+        prompt = questionary.text(
+            "Enter prompt:",
+            multiline=False,
+        ).ask()
+
+        # Clear manual mode state
+        self.console.set_manual_mode(False)
+        self.console.set_paused(False)
+
+        # Resume display
+        self.console.start(
+            plan_name=self.config.plan_path.name,
+            total_steps=len(self.workflow.steps),
+        )
+
+        if prompt:
+            # Resume with custom prompt
+            with self.console.step("Manual prompt") as output:
+                self.runner.resume(
+                    prompt=prompt,
+                    output=output,
+                )
 
     def _count_phases(self) -> int:
         """Count the number of phases in the plan file."""

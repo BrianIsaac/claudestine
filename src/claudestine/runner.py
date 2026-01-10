@@ -47,6 +47,9 @@ class ClaudeRunner:
         self._cache_read_tokens: int = 0
         self._cache_creation_tokens: int = 0
         self._context_window_size: int = 200_000
+        # Interrupt capability
+        self._process: subprocess.Popen | None = None
+        self._interrupted: bool = False
 
     def run(
         self,
@@ -74,6 +77,7 @@ class ClaudeRunner:
 
         all_output: list[str] = []
         stop_reason: str | None = None
+        self._interrupted = False
 
         try:
             # Use unbuffered output for real-time streaming
@@ -85,6 +89,7 @@ class ClaudeRunner:
                 env=self._get_env(),
                 bufsize=0,  # Unbuffered
             )
+            self._process = process
 
             if process.stdout is None:
                 return ClaudeResult(
@@ -96,6 +101,11 @@ class ClaudeRunner:
 
             # Read line by line for streaming
             for line_bytes in iter(process.stdout.readline, b""):
+                # Check if interrupted
+                if self._interrupted:
+                    stop_reason = "Interrupted by user"
+                    break
+
                 line = line_bytes.decode("utf-8", errors="replace").rstrip()
 
                 if not line:
@@ -139,6 +149,45 @@ class ClaudeRunner:
                 output="\n".join(all_output),
                 error=error_msg,
             )
+        finally:
+            self._process = None
+
+    def interrupt(self) -> None:
+        """Interrupt the current Claude execution."""
+        if self._process and self._process.poll() is None:
+            self._process.terminate()
+            self._interrupted = True
+
+    def is_interrupted(self) -> bool:
+        """Check if execution was interrupted."""
+        return self._interrupted
+
+    def resume(
+        self,
+        prompt: str = "continue from where you left off",
+        output: StepOutput | None = None,
+        on_line: Callable[[str], None] | None = None,
+        stop_patterns: list[str] | None = None,
+    ) -> ClaudeResult:
+        """
+        Resume after interrupt with optional custom prompt.
+
+        Args:
+            prompt: The prompt to send (default: continue message).
+            output: StepOutput to stream to.
+            on_line: Callback for each line of output.
+            stop_patterns: Patterns that indicate we should stop.
+
+        Returns:
+            ClaudeResult with execution details.
+        """
+        self._interrupted = False
+        return self.run(
+            prompt=prompt,
+            output=output,
+            on_line=on_line,
+            stop_patterns=stop_patterns,
+        )
 
     def run_shell(
         self,
