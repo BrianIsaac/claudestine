@@ -22,6 +22,20 @@ Claudestine solves this by **managing context during plan implementation**. You 
 
 The result: Claude always operates within reasonable context limits while maintaining continuity across the full implementation through the plan file.
 
+## Features
+
+- **Phase-by-phase execution** - Implements one phase at a time, loops automatically
+- **Real-time streaming output** - See Claude's responses as they happen
+- **Context window tracking** - Header shows `Context: 45k/200k (22.5%)` in real-time
+- **Full tool visibility** - See exactly what Claude is doing (file paths, commands, diffs)
+- **Interactive controls** - Press P to pause, C to continue, M for manual override
+- **Phase tracking** - UI shows `Phase 1/2 | Step 3/5`
+- **Readable logs** - Markdown logs with collapsible sections in `.claudestine/logs/`
+- **Configurable workflow** - YAML-based, editable before execution
+- **Auto verification** - Playwright MCP, pytest, Docker health checks
+- **Conventional commits** - No Claude watermark
+- **Interactive mode** - Plan and workflow selection with prompts
+
 ## Overview
 
 Claudestine wraps Claude Code and automates the implementation loop. The default workflow (what I typically use) looks like this, but [custom workflows](#configuration) can be configured:
@@ -109,6 +123,48 @@ claudestine run plan.md --no-push
 claudestine run plan.md --workflow my-workflow.yaml
 ```
 
+### Keyboard Controls
+
+During execution, you can control claudestine with these keys:
+
+| Key | Action |
+|-----|--------|
+| `P` | Pause execution |
+| `C` | Continue after pause |
+| `M` | Manual mode - enter a custom prompt |
+| `Ctrl+C` | Stop completely |
+
+## Plan Format
+
+Plans should have phases marked with `## Phase X` headers:
+
+```markdown
+# My Feature Plan
+
+## Quick Start
+**Progress:** 0/3 phases complete (0%)
+
+## Phase 1: Setup
+**Status:** pending
+### Steps
+1. Do something
+### Success Criteria
+- [ ] Something works
+
+## Phase 2: Implementation
+**Status:** pending
+...
+
+## Phase 3: Testing
+**Status:** pending
+...
+```
+
+Claudestine will:
+- Count phases automatically
+- Implement one phase per loop iteration
+- Check for completion by looking at phase statuses
+
 ## Using in Other Repos
 
 Claudestine works from any directory. When you run it:
@@ -149,7 +205,15 @@ Logs appear in the **target project**, not in claudestine:
     └── ...
 ```
 
-## Workflow Commands
+## Configuration
+
+Workflows are loaded with precedence:
+
+1. **Project**: `<project>/.claudestine/workflow.yaml`
+2. **Global**: `~/.config/claudestine/workflow.yaml`
+3. **Bundled**: Default workflow
+
+### Workflow Commands
 
 ```bash
 # Show current workflow
@@ -167,14 +231,6 @@ claudestine workflow edit
 # Reset to defaults
 claudestine workflow reset
 ```
-
-## Configuration
-
-Workflows are loaded with precedence:
-
-1. **Project**: `<project>/.claudestine/workflow.yaml`
-2. **Global**: `~/.config/claudestine/workflow.yaml`
-3. **Bundled**: Default workflow
 
 ### Default Workflow
 
@@ -237,62 +293,6 @@ Available in prompts and commands:
 |----------|-------------|
 | `{plan_path}` | Full path to the plan file |
 | `{working_dir}` | Working directory |
-
-## Features
-
-- **Phase-by-phase execution** - Implements one phase at a time, loops automatically
-- **Real-time streaming output** - See Claude's responses as they happen
-- **Context window tracking** - Header shows `Context: 45k/200k (22.5%)` in real-time
-- **Full tool visibility** - See exactly what Claude is doing (file paths, commands, diffs)
-- **Interactive controls** - Press P to pause, C to continue, M for manual override
-- **Phase tracking** - UI shows `Phase 1/2 | Step 3/5`
-- **Readable logs** - Markdown logs with collapsible sections in `.claudestine/logs/`
-- **Configurable workflow** - YAML-based, editable before execution
-- **Auto verification** - Playwright MCP, pytest, Docker health checks
-- **Conventional commits** - No Claude watermark
-- **Interactive mode** - Plan and workflow selection with prompts
-
-## Keyboard Controls
-
-During execution, you can control claudestine with these keys:
-
-| Key | Action |
-|-----|--------|
-| `P` | Pause execution |
-| `C` | Continue after pause |
-| `M` | Manual mode - enter a custom prompt |
-| `Ctrl+C` | Stop completely |
-
-## Plan Format
-
-Plans should have phases marked with `## Phase X` headers:
-
-```markdown
-# My Feature Plan
-
-## Quick Start
-**Progress:** 0/3 phases complete (0%)
-
-## Phase 1: Setup
-**Status:** pending
-### Steps
-1. Do something
-### Success Criteria
-- [ ] Something works
-
-## Phase 2: Implementation
-**Status:** pending
-...
-
-## Phase 3: Testing
-**Status:** pending
-...
-```
-
-Claudestine will:
-- Count phases automatically
-- Implement one phase per loop iteration
-- Check for completion by looking at phase statuses
 
 ## Credits
 
