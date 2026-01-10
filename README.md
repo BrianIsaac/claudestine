@@ -49,12 +49,28 @@ Claudestine wraps Claude Code and automates the implementation loop. The default
 
 ## Installation
 
-```bash
-# Install as UV tool (recommended for use across repos)
-uv tool install /path/to/claudestine
+### Prerequisites
 
-# Or add to your PATH after install
-uv tool install ~/Documents/personal/claudestine
+- Python 3.12+
+- [Claude CLI](https://docs.anthropic.com/en/docs/claude-code) installed and configured
+- [uv](https://docs.astral.sh/uv/) package manager
+- [git](https://git-scm.com/)
+
+### Recommended MCP Servers
+
+For full functionality, configure these MCP servers in Claude Code:
+
+- **[Playwright MCP](https://github.com/anthropics/anthropic-quickstarts/tree/main/mcp-server-playwright)** - Automated browser testing for UI verification
+- **[pyright-lsp](https://github.com/anthropics/anthropic-quickstarts/tree/main/mcp-server-pyright)** - Python language server for type checking and code intelligence (used by subagents)
+
+### Install
+
+```bash
+# Clone the repo
+git clone https://github.com/BrianIsaac/claudestine.git
+
+# Install as UV tool (recommended for use across repos)
+uv tool install ./claudestine
 ```
 
 ## Usage
@@ -277,19 +293,6 @@ Claudestine will:
 - Count phases automatically
 - Implement one phase per loop iteration
 - Check for completion by looking at phase statuses
-
-## Requirements
-
-- Python 3.12+
-- [Claude CLI](https://docs.anthropic.com/en/docs/claude-code) installed and configured
-- [uv](https://docs.astral.sh/uv/) package manager
-
-### Recommended MCP Servers
-
-For full functionality, configure these MCP servers in Claude Code:
-
-- **[Playwright MCP](https://github.com/anthropics/anthropic-quickstarts/tree/main/mcp-server-playwright)** - Automated browser testing for UI verification
-- **[pyright-lsp](https://github.com/anthropics/anthropic-quickstarts/tree/main/mcp-server-pyright)** - Python language server for type checking and code intelligence (used by subagents)
 
 ## Credits
 
