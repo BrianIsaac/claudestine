@@ -1,1 +1,1 @@
-"""Test fixtures for Claudestine."""
+"""Test fixtures for claudestine."""
