@@ -126,7 +126,8 @@ class Console:
         self._plan_name: str = ""
         self._total_steps: int = 0
         self._current_step_num: int = 0
-        self._current_iteration: int = 0
+        self._current_phase: int = 0
+        self._total_phases: int = 0
 
     def start(self, plan_name: str, total_steps: int) -> None:
         """
@@ -139,7 +140,8 @@ class Console:
         self._plan_name = plan_name
         self._total_steps = total_steps
         self._current_step_num = 0
-        self._current_iteration = 1
+        self._current_phase = 0
+        self._total_phases = 0
 
         self._progress = Progress(
             SpinnerColumn(),
@@ -164,14 +166,19 @@ class Console:
         )
         self._live.start()
 
-    def new_iteration(self, iteration: int) -> None:
+    def set_total_phases(self, total: int) -> None:
+        """Set the total number of phases in the plan."""
+        self._total_phases = total
+        self.refresh()
+
+    def new_phase(self, phase: int) -> None:
         """
-        Start a new iteration, resetting step counter and progress.
+        Start a new phase, resetting step counter and progress.
 
         Args:
-            iteration: The iteration number starting.
+            phase: The phase number starting.
         """
-        self._current_iteration = iteration
+        self._current_phase = phase
         self._current_step_num = 0
         self.steps.clear()
 
@@ -195,13 +202,16 @@ class Console:
         """Render the full display."""
         renderables = []
 
-        # Header with iteration and step info
+        # Header with phase and step info
         header = Table.grid(expand=True)
         header.add_column()
         header.add_column(justify="right")
+        phase_info = f"Phase {self._current_phase}"
+        if self._total_phases > 0:
+            phase_info += f"/{self._total_phases}"
         header.add_row(
             f"[bold cyan]Claudestine[/bold cyan] [dim]v0.2.0[/dim]",
-            f"[dim]Iteration {self._current_iteration} | Step {self._current_step_num}/{self._total_steps}[/dim]",
+            f"[dim]{phase_info} | Step {self._current_step_num}/{self._total_steps}[/dim]",
         )
         renderables.append(Panel(header, border_style="cyan"))
 

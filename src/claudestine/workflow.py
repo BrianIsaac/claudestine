@@ -58,38 +58,42 @@ class WorkflowExecutor:
         Returns:
             True if workflow completed successfully.
         """
+        # Count total phases in plan
+        total_phases = self._count_phases()
+
         self.console.start(
             plan_name=self.config.plan_path.name,
             total_steps=len(self.workflow.steps),
         )
+        self.console.set_total_phases(total_phases)
 
         self.console.info(f"Logging to: {self.logger.get_log_path()}")
 
         try:
-            iteration = 0
-            max_iterations = 50
+            phase = 0
+            max_phases = 50
 
-            while iteration < max_iterations:
-                iteration += 1
-                self.console.new_iteration(iteration)
+            while phase < max_phases:
+                phase += 1
+                self.console.new_phase(phase)
 
                 # Execute each step in sequence
                 for step in self.workflow.steps:
                     step_start = time.time()
-                    self.logger.log_step_start(step.name, step.type.value, iteration)
+                    self.logger.log_step_start(step.name, step.type.value, phase)
 
-                    result = self._execute_step(step, iteration)
+                    result = self._execute_step(step, phase)
 
                     step_duration = time.time() - step_start
                     self.logger.log_step_complete(
                         step.name,
                         result.success,
                         step_duration,
-                        result.output[:500] if result.output else None,
+                        self._extract_summary(result.output),
                     )
 
                     if result.output:
-                        self.logger.log_claude_output(step.name, result.output)
+                        self.logger.log_claude_output(step.name, self._format_output_for_log(result.output))
 
                     if not result.success:
                         if step.require_success:
@@ -97,24 +101,97 @@ class WorkflowExecutor:
                             self.console.error(
                                 f"Step '{step.name}' failed and requires success"
                             )
-                            self.logger.log_session_end(False, iteration)
+                            self.logger.log_session_end(False, phase)
                             return False
 
-                # Check plan progress after each full iteration
+                # Check plan progress after each full phase
                 plan_complete = self._is_plan_complete()
-                self.logger.log_iteration_complete(iteration, plan_complete)
+                self.logger.log_phase_complete(phase, plan_complete)
 
                 if plan_complete:
                     self.console.success("Plan fully implemented!")
-                    self.logger.log_session_end(True, iteration)
+                    self.logger.log_session_end(True, phase)
                     return True
 
-            self.console.warning(f"Reached max iterations ({max_iterations})")
-            self.logger.log_session_end(False, iteration)
+            self.console.warning(f"Reached max phases ({max_phases})")
+            self.logger.log_session_end(False, phase)
             return False
 
         finally:
             self.console.stop()
+
+    def _count_phases(self) -> int:
+        """Count the number of phases in the plan file."""
+        try:
+            content = self.config.plan_path.read_text()
+            # Count "## Phase X" headers
+            return len(re.findall(r"^##\s+Phase\s+\d+", content, re.MULTILINE | re.IGNORECASE))
+        except Exception:
+            return 0
+
+    def _extract_summary(self, output: str) -> str | None:
+        """Extract a human-readable summary from Claude output."""
+        if not output:
+            return None
+
+        # Try to extract just text content from stream-json
+        lines = []
+        for line in output.split("\n"):
+            if not line.strip():
+                continue
+            try:
+                import json
+                data = json.loads(line)
+                if data.get("type") == "assistant":
+                    message = data.get("message", {})
+                    for item in message.get("content", []):
+                        if item.get("type") == "text":
+                            text = item.get("text", "").strip()
+                            if text:
+                                lines.append(text)
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        if lines:
+            return "\n".join(lines)[:500]
+        return output[:500] if output else None
+
+    def _format_output_for_log(self, output: str) -> str:
+        """Format Claude output for readable log."""
+        if not output:
+            return ""
+
+        lines = []
+        for line in output.split("\n"):
+            if not line.strip():
+                continue
+            try:
+                import json
+                data = json.loads(line)
+
+                if data.get("type") == "assistant":
+                    message = data.get("message", {})
+                    for item in message.get("content", []):
+                        if item.get("type") == "text":
+                            text = item.get("text", "").strip()
+                            if text:
+                                lines.append(text)
+                        elif item.get("type") == "tool_use":
+                            tool = item.get("name", "unknown")
+                            lines.append(f"[Tool: {tool}]")
+
+                elif data.get("type") == "result":
+                    result = data.get("result", "")
+                    if result:
+                        lines.append(f"\n--- Result ---\n{result}")
+
+            except (json.JSONDecodeError, TypeError):
+                # Not JSON, include as-is if it looks meaningful
+                clean = line.strip()
+                if clean and not clean.startswith("{"):
+                    lines.append(clean)
+
+        return "\n".join(lines) if lines else output
 
     def execute_dry_run(self) -> None:
         """Show what would be executed without running."""

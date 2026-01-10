@@ -23,18 +23,18 @@ class WorkflowLogger:
         self.log_path = self.log_dir / f"{timestamp}_{safe_name}.md"
 
         self._start_time = datetime.now()
-        self._current_iteration = 0
+        self._current_phase = 0
 
         self._write(f"# Claudestine Execution Log\n\n")
         self._write(f"**Plan:** {plan_name}\n")
         self._write(f"**Started:** {self._start_time.strftime('%Y-%m-%d %H:%M:%S')}\n\n")
         self._write("---\n\n")
 
-    def log_step_start(self, step_name: str, step_type: str, iteration: int) -> None:
+    def log_step_start(self, step_name: str, step_type: str, phase: int) -> None:
         """Log the start of a workflow step."""
-        if iteration != self._current_iteration:
-            self._current_iteration = iteration
-            self._write(f"## Iteration {iteration}\n\n")
+        if phase != self._current_phase:
+            self._current_phase = phase
+            self._write(f"## Phase {phase}\n\n")
 
         self._write(f"### {step_name} ({step_type})\n\n")
         self._write(f"*Started: {datetime.now().strftime('%H:%M:%S')}*\n\n")
@@ -57,22 +57,22 @@ class WorkflowLogger:
                 self._write("\n... (truncated)")
             self._write("\n```\n</details>\n\n")
 
-    def log_iteration_complete(self, iteration: int, plan_complete: bool) -> None:
-        """Log the completion of a workflow iteration."""
+    def log_phase_complete(self, phase: int, plan_complete: bool) -> None:
+        """Log the completion of a workflow phase."""
         if plan_complete:
-            self._write(f"**Iteration {iteration} Result:** Plan complete\n\n")
+            self._write(f"**Phase {phase} Result:** Plan complete\n\n")
         else:
-            self._write(f"**Iteration {iteration} Result:** Continuing to next iteration\n\n")
+            self._write(f"**Phase {phase} Result:** Continuing to next phase\n\n")
         self._write("---\n\n")
 
-    def log_session_end(self, success: bool, total_iterations: int) -> None:
+    def log_session_end(self, success: bool, total_phases: int) -> None:
         """Log the end of the workflow session."""
         duration = (datetime.now() - self._start_time).total_seconds()
         status = "SUCCESS" if success else "FAILED"
 
         self._write("## Summary\n\n")
         self._write(f"- **Status:** {status}\n")
-        self._write(f"- **Total Iterations:** {total_iterations}\n")
+        self._write(f"- **Phases Completed:** {total_phases}\n")
         self._write(f"- **Duration:** {duration:.1f}s\n")
         self._write(f"- **Ended:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
 
