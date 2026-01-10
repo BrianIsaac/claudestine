@@ -1,10 +1,12 @@
 """Workflow executor for Claudestine."""
 
 import re
+import time
 from pathlib import Path
 from string import Template
 
-from claudestine.config import RunConfig, Step, StepType, Workflow
+from claudestine.config import RunConfig, Step, StepType, Workflow, get_project_config_dir
+from claudestine.logging import WorkflowLogger
 from claudestine.runner import (
     ClaudeResult,
     ClaudeRunner,
@@ -38,6 +40,10 @@ class WorkflowExecutor:
             working_dir=config.working_dir,
         )
 
+        # Set up logging
+        log_dir = get_project_config_dir(config.working_dir)
+        self.logger = WorkflowLogger(log_dir, config.plan_path.name)
+
         # Variables available for template substitution
         self.variables = {
             "plan_path": str(config.plan_path),
@@ -57,6 +63,8 @@ class WorkflowExecutor:
             total_steps=len(self.workflow.steps),
         )
 
+        self.console.info(f"Logging to: {self.logger.get_log_path()}")
+
         try:
             iteration = 0
             max_iterations = 50
@@ -66,21 +74,42 @@ class WorkflowExecutor:
 
                 # Execute each step in sequence
                 for step in self.workflow.steps:
-                    result = self._execute_step(step)
+                    step_start = time.time()
+                    self.logger.log_step_start(step.name, step.type.value, iteration)
+
+                    result = self._execute_step(step, iteration)
+
+                    step_duration = time.time() - step_start
+                    self.logger.log_step_complete(
+                        step.name,
+                        result.success,
+                        step_duration,
+                        result.output[:500] if result.output else None,
+                    )
+
+                    if result.output:
+                        self.logger.log_claude_output(step.name, result.output)
 
                     if not result.success:
                         if step.require_success:
+                            self.logger.log_error(step.name, result.error or "Step failed")
                             self.console.error(
                                 f"Step '{step.name}' failed and requires success"
                             )
+                            self.logger.log_session_end(False, iteration)
                             return False
 
                 # Check plan progress after each full iteration
-                if self._is_plan_complete():
+                plan_complete = self._is_plan_complete()
+                self.logger.log_iteration_complete(iteration, plan_complete)
+
+                if plan_complete:
                     self.console.success("Plan fully implemented!")
+                    self.logger.log_session_end(True, iteration)
                     return True
 
             self.console.warning(f"Reached max iterations ({max_iterations})")
+            self.logger.log_session_end(False, iteration)
             return False
 
         finally:
@@ -114,12 +143,13 @@ class WorkflowExecutor:
             if step.stop_on:
                 self.console.print(f"   [dim]Stop on:[/dim] {', '.join(step.stop_on)}")
 
-    def _execute_step(self, step: Step) -> ClaudeResult:
+    def _execute_step(self, step: Step, iteration: int = 1) -> ClaudeResult:
         """
         Execute a single workflow step.
 
         Args:
             step: Step to execute.
+            iteration: Current workflow iteration number.
 
         Returns:
             Result of the step execution.

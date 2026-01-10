@@ -288,7 +288,10 @@ def _get_default_workflow() -> Workflow:
             Step(
                 name="implement",
                 type=StepType.CLAUDE,
-                prompt="/implement_plan @{plan_path} ensure to stop for manual verification items.",
+                prompt="""Read @{plan_path} and implement ONLY the next incomplete phase (marked as "pending" or "in progress").
+Do not implement multiple phases - stop after completing one phase.
+Ensure to stop for any manual verification items listed in the phase.
+Update the phase status to "complete" when done.""",
                 stream=True,
             ),
             Step(

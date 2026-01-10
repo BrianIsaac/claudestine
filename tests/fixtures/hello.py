@@ -1,11 +1,11 @@
-"""Hello module for testing Claudestine orchestration."""
+"""Hello module with greeting functionality."""
 
 
 def greet(name: str) -> str:
-    """Generate a greeting message for the given name.
+    """Return a greeting message for the given name.
 
     Args:
-        name: The name of the person to greet.
+        name: The name to greet.
 
     Returns:
         A greeting string in the format "Hello, {name}!".
