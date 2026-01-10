@@ -23,15 +23,6 @@ class ClaudeResult:
     error: str | None = None
 
 
-@dataclass
-class StreamEvent:
-    """Event from streaming output."""
-
-    type: str  # text, tool_use, tool_result, error, done
-    content: str
-    metadata: dict = field(default_factory=dict)
-
-
 class ClaudeRunner:
     """Runs Claude CLI with streaming output."""
 
@@ -72,16 +63,21 @@ class ClaudeRunner:
         """
         cmd = self._build_command(prompt)
 
+        if output:
+            output.append(f"[dim]$ {' '.join(cmd[:3])}...[/dim]")
+
         all_output: list[str] = []
         stop_reason: str | None = None
 
         try:
+            # Use unbuffered output for real-time streaming
             process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 cwd=self.working_dir,
                 env=self._get_env(),
+                bufsize=0,  # Unbuffered
             )
 
             if process.stdout is None:
@@ -92,41 +88,30 @@ class ClaudeRunner:
                     error="Failed to capture stdout",
                 )
 
-            # Stream output using read1() for real-time display
-            buffer = ""
-            while True:
-                chunk = process.stdout.read1(1024)  # type: ignore
-                if not chunk:
-                    break
+            # Read line by line for streaming
+            for line_bytes in iter(process.stdout.readline, b""):
+                line = line_bytes.decode("utf-8", errors="replace").rstrip()
 
-                text = chunk.decode("utf-8", errors="replace")
-                buffer += text
+                if not line:
+                    continue
 
-                # Process complete lines
-                while "\n" in buffer:
-                    line, buffer = buffer.split("\n", 1)
-                    all_output.append(line)
+                all_output.append(line)
 
-                    # Stream to UI
-                    if output:
-                        output.append(self._format_line(line))
-                    if on_line:
-                        on_line(line)
-
-                    # Check for stop patterns
-                    if stop_patterns:
-                        for pattern in stop_patterns:
-                            if re.search(pattern, line, re.IGNORECASE):
-                                stop_reason = f"Pattern matched: {pattern}"
-
-                    # Try to extract session ID from JSON output
-                    self._try_extract_session_id(line)
-
-            # Process remaining buffer
-            if buffer:
-                all_output.append(buffer)
+                # Format and display
+                formatted = self._format_line(line)
                 if output:
-                    output.append(self._format_line(buffer))
+                    output.append(formatted)
+                if on_line:
+                    on_line(line)
+
+                # Check for stop patterns
+                if stop_patterns:
+                    for pattern in stop_patterns:
+                        if re.search(pattern, line, re.IGNORECASE):
+                            stop_reason = f"Pattern matched: {pattern}"
+
+                # Try to extract session ID from JSON output
+                self._try_extract_session_id(line)
 
             exit_code = process.wait()
 
@@ -139,11 +124,14 @@ class ClaudeRunner:
             )
 
         except Exception as e:
+            error_msg = str(e)
+            if output:
+                output.append(f"[red]Error: {error_msg}[/red]")
             return ClaudeResult(
                 success=False,
                 exit_code=-1,
                 output="\n".join(all_output),
-                error=str(e),
+                error=error_msg,
             )
 
     def run_shell(
@@ -166,7 +154,6 @@ class ClaudeRunner:
         all_output: list[str] = []
 
         if skip_if_clean:
-            # Check if there are changes to commit
             result = subprocess.run(
                 ["git", "status", "--porcelain"],
                 cwd=self.working_dir,
@@ -194,18 +181,22 @@ class ClaudeRunner:
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     cwd=self.working_dir,
+                    bufsize=0,
                 )
 
                 if process.stdout:
-                    for line in process.stdout:
-                        decoded = line.decode("utf-8", errors="replace").rstrip()
-                        all_output.append(decoded)
-                        if output:
-                            output.append(decoded)
+                    for line_bytes in iter(process.stdout.readline, b""):
+                        line = line_bytes.decode("utf-8", errors="replace").rstrip()
+                        if line:
+                            all_output.append(line)
+                            if output:
+                                output.append(line)
 
                 exit_code = process.wait()
 
                 if exit_code != 0:
+                    if output:
+                        output.append(f"[red]Command failed with exit code {exit_code}[/red]")
                     return ClaudeResult(
                         success=False,
                         exit_code=exit_code,
@@ -214,6 +205,8 @@ class ClaudeRunner:
                     )
 
             except Exception as e:
+                if output:
+                    output.append(f"[red]Error: {e}[/red]")
                 return ClaudeResult(
                     success=False,
                     exit_code=-1,
@@ -231,9 +224,13 @@ class ClaudeRunner:
         """Clear the current session."""
         self._session_id = None
 
-    def _build_command(self, prompt: str) -> list[str]:
+    def _build_command(self, prompt: str, streaming: bool = True) -> list[str]:
         """Build the Claude CLI command."""
         cmd = ["claude", "-p", prompt]
+
+        # Use stream-json for real-time output
+        if streaming:
+            cmd.extend(["--output-format", "stream-json", "--verbose"])
 
         if self.allowed_tools:
             cmd.extend(["--allowedTools", ",".join(self.allowed_tools)])
@@ -246,17 +243,31 @@ class ClaudeRunner:
     def _get_env(self) -> dict:
         """Get environment variables for subprocess."""
         env = os.environ.copy()
-        # Ensure Claude outputs to terminal properly
-        env["FORCE_COLOR"] = "1"
+        # Disable colours in Claude output for cleaner parsing
+        env["NO_COLOR"] = "1"
+        # Force line buffering
+        env["PYTHONUNBUFFERED"] = "1"
         return env
 
     def _format_line(self, line: str) -> str:
-        """Format a line for display."""
-        # Remove ANSI escape codes for cleaner display
+        """Format a stream-json line for display."""
+        if not line.strip():
+            return ""
+
+        # Try to parse as JSON (stream-json format)
+        try:
+            data = json.loads(line)
+            return self._format_stream_event(data)
+        except json.JSONDecodeError:
+            pass
+
+        # Fallback: plain text formatting
         ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
         clean = ansi_escape.sub("", line)
 
-        # Highlight key patterns
+        if not clean.strip():
+            return ""
+
         if clean.startswith("> "):
             return f"[cyan]{clean}[/cyan]"
         if "error" in clean.lower():
@@ -266,14 +277,57 @@ class ClaudeRunner:
 
         return clean
 
+    def _format_stream_event(self, data: dict) -> str:
+        """Format a stream-json event for display."""
+        event_type = data.get("type", "")
+
+        if event_type == "system" and data.get("subtype") == "init":
+            session_id = data.get("session_id", "")
+            self._session_id = session_id
+            return f"[dim]Session: {session_id[:8]}...[/dim]"
+
+        if event_type == "assistant":
+            message = data.get("message", {})
+            content = message.get("content", [])
+
+            lines = []
+            for item in content:
+                if item.get("type") == "text":
+                    text = item.get("text", "")
+                    if text:
+                        lines.append(text)
+                elif item.get("type") == "tool_use":
+                    tool = item.get("name", "unknown")
+                    lines.append(f"[cyan]> Using tool: {tool}[/cyan]")
+
+            return "\n".join(lines) if lines else ""
+
+        if event_type == "tool_result":
+            return "[dim]> Tool completed[/dim]"
+
+        if event_type == "result":
+            result = data.get("result", "")
+            if result:
+                # Don't repeat the full result, just show summary
+                cost = data.get("total_cost_usd", 0)
+                return f"[green]Done[/green] [dim](${cost:.4f})[/dim]"
+
+        # Skip other event types
+        return ""
+
     def _try_extract_session_id(self, line: str) -> None:
         """Try to extract session ID from output."""
-        try:
-            data = json.loads(line)
-            if "session_id" in data:
-                self._session_id = data["session_id"]
-        except (json.JSONDecodeError, TypeError):
-            pass
+        # Look for session_id in JSON
+        if "session_id" in line:
+            try:
+                data = json.loads(line)
+                if "session_id" in data:
+                    self._session_id = data["session_id"]
+            except (json.JSONDecodeError, TypeError):
+                # Try regex fallback
+                match = re.search(r'"session_id":\s*"([^"]+)"', line)
+                if match:
+                    self._session_id = match.group(1)
 
 
 def get_git_status(working_dir: Path) -> list[tuple[str, str]]:
@@ -322,12 +376,10 @@ def generate_commit_message(working_dir: Path) -> str:
     if not files:
         return "chore: no changes"
 
-    # Analyse changes to determine commit type
     added = [f for s, f in files if s in ("A", "??")]
     modified = [f for s, f in files if s == "M"]
     deleted = [f for s, f in files if s == "D"]
 
-    # Determine primary action
     if added and not modified and not deleted:
         action = "feat"
         desc = "add"
@@ -341,7 +393,6 @@ def generate_commit_message(working_dir: Path) -> str:
         action = "chore"
         desc = "update"
 
-    # Determine scope from file paths
     all_files = [f for _, f in files]
     common_dir = os.path.commonpath(all_files) if all_files else ""
 
@@ -352,7 +403,6 @@ def generate_commit_message(working_dir: Path) -> str:
     else:
         scope = "misc"
 
-    # Keep it simple and short
     if len(all_files) == 1:
         return f"{action}({scope}): {desc} {Path(all_files[0]).name}"
     else:

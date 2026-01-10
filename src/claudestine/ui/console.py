@@ -60,6 +60,8 @@ class StepOutput:
         self.collapsed = False
         self.console.refresh()
 
+    MAX_VISIBLE_LINES = 15  # Fixed height output area
+
     def render(self) -> Panel:
         """Render the step output as a Rich Panel."""
         status_styles = {
@@ -74,21 +76,32 @@ class StepOutput:
 
         if self.collapsed:
             line_count = len(self.lines)
-            content = Text(f"[{line_count} lines - click to expand]", style="dim")
-        else:
-            if self.lines:
-                content = Text("\n".join(self.lines[-50:]))  # Last 50 lines
-                if len(self.lines) > 50:
-                    content = Text(f"... ({len(self.lines) - 50} lines hidden)\n") + content
+            return Panel(
+                Text(f"[{line_count} lines]", style="dim"),
+                title=title,
+                title_align="left",
+                border_style="dim",
+                height=3,
+            )
+
+        # Fixed height: show last N lines only
+        visible_lines = [l for l in self.lines if l.strip()][-self.MAX_VISIBLE_LINES:]
+
+        if visible_lines:
+            if len(self.lines) > self.MAX_VISIBLE_LINES:
+                header = f"[dim]... ({len(self.lines) - self.MAX_VISIBLE_LINES} more above)[/dim]\n"
+                content = Text.from_markup(header + "\n".join(visible_lines))
             else:
-                content = Text("(no output yet)", style="dim")
+                content = Text.from_markup("\n".join(visible_lines))
+        else:
+            content = Text("(waiting...)", style="dim")
 
         return Panel(
             content,
             title=title,
             title_align="left",
             border_style=colour,
-            expand=True,
+            height=self.MAX_VISIBLE_LINES + 4,  # Fixed height
         )
 
 
@@ -185,14 +198,8 @@ class Console:
                 step.collapsed = True
             renderables.append(step.render())
 
-        # Footer with controls
-        footer = Text()
-        footer.append("  [p]", style="bold")
-        footer.append(" Pause  ", style="dim")
-        footer.append("[s]", style="bold")
-        footer.append(" Stop  ", style="dim")
-        footer.append("[q]", style="bold")
-        footer.append(" Quit", style="dim")
+        # Footer with hint
+        footer = Text("Press Ctrl+C to stop", style="dim")
         renderables.append(Panel(footer, border_style="dim"))
 
         return Group(*renderables)

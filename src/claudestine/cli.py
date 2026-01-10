@@ -1,13 +1,16 @@
 """Typer CLI for Claudestine."""
 
+import glob
 from pathlib import Path
 from typing import Annotated, Optional
 
 import editor
+import questionary
 import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.syntax import Syntax
+from rich.text import Text
 
 from claudestine import __version__
 from claudestine.config import (
@@ -25,7 +28,7 @@ app = typer.Typer(
     name="claudestine",
     help="Automated plan implementation orchestrator for Claude Code.",
     add_completion=False,
-    no_args_is_help=True,
+    invoke_without_command=True,
 )
 
 workflow_app = typer.Typer(
@@ -36,6 +39,197 @@ workflow_app = typer.Typer(
 app.add_typer(workflow_app)
 
 console = Console()
+
+
+@app.callback(invoke_without_command=True)
+def main_callback(ctx: typer.Context):
+    """Interactive mode when no command is given."""
+    if ctx.invoked_subcommand is None:
+        _interactive_mode()
+
+
+def _interactive_mode():
+    """Boot into interactive selection mode."""
+    console.print()
+    console.print(Panel(
+        Text.from_markup(
+            f"[bold cyan]Claudestine[/bold cyan] [dim]v{__version__}[/dim]\n"
+            "[dim]Automated plan implementation orchestrator[/dim]"
+        ),
+        border_style="cyan",
+    ))
+    console.print()
+
+    # Step 1: Find and select plan
+    cwd = Path.cwd()
+    plan_patterns = [
+        "**/thoughts/**/plans/*.md",
+        "**/plans/*.md",
+        "**/*-plan.md",
+        "**/*_plan.md",
+    ]
+
+    plans = []
+    for pattern in plan_patterns:
+        plans.extend(cwd.glob(pattern))
+
+    # Dedupe and sort
+    plans = sorted(set(plans), key=lambda p: p.stat().st_mtime, reverse=True)[:20]
+
+    if not plans:
+        plan_path = questionary.path(
+            "Enter path to plan file:",
+            only_directories=False,
+        ).ask()
+
+        if not plan_path:
+            console.print("[yellow]Cancelled[/yellow]")
+            raise typer.Exit(0)
+
+        plan_path = Path(plan_path)
+    else:
+        choices = [
+            questionary.Choice(
+                title=f"{p.name} [dim]({p.parent.relative_to(cwd)})[/dim]",
+                value=str(p),
+            )
+            for p in plans
+        ]
+        choices.append(questionary.Choice(title="[Enter custom path]", value="__custom__"))
+
+        selected = questionary.select(
+            "Select a plan:",
+            choices=choices,
+        ).ask()
+
+        if not selected:
+            console.print("[yellow]Cancelled[/yellow]")
+            raise typer.Exit(0)
+
+        if selected == "__custom__":
+            plan_path = questionary.path(
+                "Enter path to plan file:",
+                only_directories=False,
+            ).ask()
+            if not plan_path:
+                console.print("[yellow]Cancelled[/yellow]")
+                raise typer.Exit(0)
+            plan_path = Path(plan_path)
+        else:
+            plan_path = Path(selected)
+
+    if not plan_path.exists():
+        console.print(f"[red]File not found: {plan_path}[/red]")
+        raise typer.Exit(1)
+
+    # Step 2: Select workflow
+    working_dir = _resolve_working_dir(plan_path, None)
+
+    workflow_choices = [
+        questionary.Choice(title="Default workflow", value="default"),
+        questionary.Choice(title="Edit workflow before running", value="edit"),
+        questionary.Choice(title="Select custom workflow file", value="custom"),
+    ]
+
+    # Check for existing workflows
+    project_workflow = get_project_config_dir(working_dir) / "workflow.yaml"
+    global_workflow = get_config_dir() / "workflow.yaml"
+
+    if project_workflow.exists():
+        workflow_choices.insert(0, questionary.Choice(
+            title=f"Project workflow ({project_workflow.name})",
+            value="project",
+        ))
+
+    if global_workflow.exists():
+        workflow_choices.insert(1, questionary.Choice(
+            title="Global workflow",
+            value="global",
+        ))
+
+    workflow_choice = questionary.select(
+        "Select workflow:",
+        choices=workflow_choices,
+    ).ask()
+
+    if not workflow_choice:
+        console.print("[yellow]Cancelled[/yellow]")
+        raise typer.Exit(0)
+
+    # Load workflow based on choice
+    if workflow_choice == "default":
+        workflow = _get_default_workflow()
+        edit_workflow = False
+    elif workflow_choice == "project":
+        workflow = Workflow.from_yaml(project_workflow)
+        edit_workflow = False
+    elif workflow_choice == "global":
+        workflow = Workflow.from_yaml(global_workflow)
+        edit_workflow = False
+    elif workflow_choice == "edit":
+        workflow = _get_default_workflow()
+        edit_workflow = True
+    elif workflow_choice == "custom":
+        custom_path = questionary.path(
+            "Enter path to workflow YAML:",
+            only_directories=False,
+        ).ask()
+        if not custom_path:
+            console.print("[yellow]Cancelled[/yellow]")
+            raise typer.Exit(0)
+        workflow = Workflow.from_yaml(Path(custom_path))
+        edit_workflow = False
+    else:
+        workflow = _get_default_workflow()
+        edit_workflow = False
+
+    # Edit workflow if requested
+    if edit_workflow:
+        yaml_content = workflow.to_yaml()
+        edited = editor.edit(contents=yaml_content.encode())
+        if edited:
+            import yaml
+            workflow = Workflow(**yaml.safe_load(edited))
+
+    # Step 3: Confirm options
+    auto_push = questionary.confirm(
+        "Auto-push after commits?",
+        default=True,
+    ).ask()
+
+    if auto_push is None:
+        console.print("[yellow]Cancelled[/yellow]")
+        raise typer.Exit(0)
+
+    # Step 4: Show summary and confirm
+    console.print()
+    console.print(Panel(
+        f"[bold]Plan:[/bold] {plan_path.name}\n"
+        f"[bold]Working dir:[/bold] {working_dir}\n"
+        f"[bold]Workflow:[/bold] {workflow.name}\n"
+        f"[bold]Auto-push:[/bold] {auto_push}",
+        title="Configuration",
+        border_style="cyan",
+    ))
+
+    if not questionary.confirm("Start execution?", default=True).ask():
+        console.print("[yellow]Cancelled[/yellow]")
+        raise typer.Exit(0)
+
+    # Execute
+    config = RunConfig(
+        plan_path=plan_path.resolve(),
+        working_dir=working_dir,
+        auto_push=auto_push,
+        dry_run=False,
+        verbose=False,
+    )
+
+    ui = ClaudestineConsole(verbose=False)
+    executor = WorkflowExecutor(workflow, config, ui)
+
+    success = executor.execute()
+    raise typer.Exit(0 if success else 1)
 
 
 def _resolve_working_dir(plan_path: Path, working_dir: Path | None) -> Path:
