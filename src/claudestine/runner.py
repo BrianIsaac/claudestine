@@ -341,7 +341,60 @@ class ClaudeRunner:
                         lines.append(text)
                 elif item.get("type") == "tool_use":
                     tool = item.get("name", "unknown")
-                    lines.append(f"[cyan]> Using tool: {tool}[/cyan]")
+                    input_data = item.get("input", {})
+
+                    if tool == "Edit":
+                        file_path = input_data.get("file_path", "")
+                        old_str = input_data.get("old_string", "")[:60]
+                        new_str = input_data.get("new_string", "")[:60]
+                        lines.append(f"[cyan]> Edit:[/cyan] {file_path}")
+                        if old_str:
+                            lines.append(f"  [dim red]- {old_str!r}[/dim red]")
+                        if new_str:
+                            lines.append(f"  [dim green]+ {new_str!r}[/dim green]")
+
+                    elif tool == "Write":
+                        file_path = input_data.get("file_path", "")
+                        content_len = len(input_data.get("content", ""))
+                        lines.append(f"[cyan]> Write:[/cyan] {file_path} ({content_len} chars)")
+
+                    elif tool == "Read":
+                        file_path = input_data.get("file_path", "")
+                        lines.append(f"[cyan]> Read:[/cyan] {file_path}")
+
+                    elif tool == "Bash":
+                        cmd = input_data.get("command", "")
+                        if len(cmd) > 80:
+                            cmd = cmd[:77] + "..."
+                        lines.append(f"[cyan]> Bash:[/cyan] {cmd}")
+
+                    elif tool == "Glob":
+                        pattern = input_data.get("pattern", "")
+                        path = input_data.get("path", ".")
+                        lines.append(f"[cyan]> Glob:[/cyan] {pattern} in {path}")
+
+                    elif tool == "Grep":
+                        pattern = input_data.get("pattern", "")
+                        path = input_data.get("path", ".")
+                        lines.append(f"[cyan]> Grep:[/cyan] {pattern!r} in {path}")
+
+                    elif tool == "Task":
+                        desc = input_data.get("description", "")
+                        agent = input_data.get("subagent_type", "")
+                        lines.append(f"[cyan]> Task:[/cyan] {desc} ({agent})")
+
+                    elif tool == "WebFetch":
+                        url = input_data.get("url", "")
+                        lines.append(f"[cyan]> WebFetch:[/cyan] {url}")
+
+                    elif tool == "WebSearch":
+                        query = input_data.get("query", "")
+                        lines.append(f"[cyan]> WebSearch:[/cyan] {query}")
+
+                    else:
+                        # Generic fallback for unknown tools
+                        input_str = str(input_data)[:80]
+                        lines.append(f"[cyan]> {tool}:[/cyan] {input_str}")
 
             return "\n".join(lines) if lines else ""
 
