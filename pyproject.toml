@@ -1,18 +1,20 @@
 [project]
 name = "claudestine"
-version = "0.1.0"
+version = "0.2.0"
 description = "Automated plan implementation orchestrator for Claude Code"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "textual>=3.0.0",
+    "typer>=0.12.0",
     "rich>=13.0.0",
     "pydantic>=2.0.0",
-    "click>=8.0.0",
+    "pydantic-settings>=2.0.0",
+    "pyyaml>=6.0.0",
+    "editor>=1.6.0",
 ]
 
 [project.scripts]
-claudestine = "claudestine.__main__:main"
+claudestine = "claudestine.cli:app"
 
 [build-system]
 requires = ["hatchling"]
@@ -23,5 +25,5 @@ packages = ["src/claudestine"]
 
 [dependency-groups]
 dev = [
-    "pytest>=9.0.2",
+    "pytest>=9.0.0",
 ]
