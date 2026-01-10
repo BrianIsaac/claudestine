@@ -2,9 +2,29 @@
 
 Automated plan implementation orchestrator for Claude Code.
 
+## Why Claudestine?
+
+When implementing large features with Claude Code, **context management becomes critical**. As Claude works through a complex plan, the context window fills up with file contents, tool outputs, and conversation history. Eventually:
+
+- Claude starts forgetting earlier decisions
+- Responses become slower and more expensive
+- Quality degrades as important context gets pushed out
+
+The typical approach is to one-shot an entire plan, but this fails for larger implementations.
+
+Claudestine solves this by **managing context during plan implementation**. You still create and iterate on plans using the included `/create_plan` slash command (or manually), but when it's time to implement, Claudestine executes phase by phase:
+
+1. Implements a single phase from the plan
+2. Runs automated verification (Playwright, pytest, etc.)
+3. Updates the plan summary for session continuity
+4. Commits changes and clears the session
+5. Loops back with fresh context for the next phase
+
+The result: Claude always operates within reasonable context limits while maintaining continuity across the full implementation through the plan file.
+
 ## Overview
 
-Claudestine wraps Claude Code and automates the full implementation loop:
+Claudestine wraps Claude Code and automates the implementation loop. The default workflow (what I typically use) looks like this, but [custom workflows](#configuration) can be configured:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -206,12 +226,26 @@ Available in prompts and commands:
 
 - **Phase-by-phase execution** - Implements one phase at a time, loops automatically
 - **Real-time streaming output** - See Claude's responses as they happen
+- **Context window tracking** - Header shows `Context: 45k/200k (22.5%)` in real-time
+- **Full tool visibility** - See exactly what Claude is doing (file paths, commands, diffs)
+- **Interactive controls** - Press P to pause, C to continue, M for manual override
 - **Phase tracking** - UI shows `Phase 1/2 | Step 3/5`
 - **Readable logs** - Markdown logs with collapsible sections in `.claudestine/logs/`
 - **Configurable workflow** - YAML-based, editable before execution
 - **Auto verification** - Playwright MCP, pytest, Docker health checks
 - **Conventional commits** - No Claude watermark
 - **Interactive mode** - Plan and workflow selection with prompts
+
+## Keyboard Controls
+
+During execution, you can control claudestine with these keys:
+
+| Key | Action |
+|-----|--------|
+| `P` | Pause execution |
+| `C` | Continue after pause |
+| `M` | Manual mode - enter a custom prompt |
+| `Ctrl+C` | Stop completely |
 
 ## Plan Format
 
@@ -247,5 +281,16 @@ Claudestine will:
 ## Requirements
 
 - Python 3.12+
-- Claude Code CLI installed and configured
-- uv package manager
+- [Claude CLI](https://docs.anthropic.com/en/docs/claude-code) installed and configured
+- [uv](https://docs.astral.sh/uv/) package manager
+
+### Recommended MCP Servers
+
+For full functionality, configure these MCP servers in Claude Code:
+
+- **[Playwright MCP](https://github.com/anthropics/anthropic-quickstarts/tree/main/mcp-server-playwright)** - Automated browser testing for UI verification
+- **[pyright-lsp](https://github.com/anthropics/anthropic-quickstarts/tree/main/mcp-server-pyright)** - Python language server for type checking and code intelligence (used by subagents)
+
+## Credits
+
+The `.claude/` subagents and slash commands are based on [HumanLayer](https://github.com/humanlayer/humanlayer)'s Claude Code configuration. The agents have been updated to add LSP support.
