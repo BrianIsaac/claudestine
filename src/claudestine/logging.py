@@ -1,13 +1,11 @@
 """Logging for Claudestine workflow execution."""
 
-import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 
 class WorkflowLogger:
-    """Logs workflow execution to a JSON Lines file."""
+    """Logs workflow execution to a readable markdown file."""
 
     def __init__(self, log_dir: Path, plan_name: str):
         """
@@ -21,22 +19,25 @@ class WorkflowLogger:
         self.log_dir.mkdir(parents=True, exist_ok=True)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        safe_name = plan_name.replace("/", "_").replace(" ", "_")
-        self.log_path = self.log_dir / f"{timestamp}_{safe_name}.jsonl"
+        safe_name = plan_name.replace("/", "_").replace(" ", "_").replace(".md", "")
+        self.log_path = self.log_dir / f"{timestamp}_{safe_name}.md"
 
         self._start_time = datetime.now()
-        self._write_event("session_start", {
-            "plan_name": plan_name,
-            "timestamp": self._start_time.isoformat(),
-        })
+        self._current_iteration = 0
+
+        self._write(f"# Claudestine Execution Log\n\n")
+        self._write(f"**Plan:** {plan_name}\n")
+        self._write(f"**Started:** {self._start_time.strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+        self._write("---\n\n")
 
     def log_step_start(self, step_name: str, step_type: str, iteration: int) -> None:
         """Log the start of a workflow step."""
-        self._write_event("step_start", {
-            "step": step_name,
-            "type": step_type,
-            "iteration": iteration,
-        })
+        if iteration != self._current_iteration:
+            self._current_iteration = iteration
+            self._write(f"## Iteration {iteration}\n\n")
+
+        self._write(f"### {step_name} ({step_type})\n\n")
+        self._write(f"*Started: {datetime.now().strftime('%H:%M:%S')}*\n\n")
 
     def log_step_complete(
         self,
@@ -46,52 +47,49 @@ class WorkflowLogger:
         output_summary: str | None = None,
     ) -> None:
         """Log the completion of a workflow step."""
-        self._write_event("step_complete", {
-            "step": step_name,
-            "success": success,
-            "duration_seconds": round(duration_seconds, 2),
-            "output_summary": output_summary[:500] if output_summary else None,
-        })
+        status = "SUCCESS" if success else "FAILED"
+        self._write(f"**Status:** {status} ({duration_seconds:.1f}s)\n\n")
+
+        if output_summary:
+            self._write("<details>\n<summary>Output Summary</summary>\n\n```\n")
+            self._write(output_summary[:500])
+            if len(output_summary) > 500:
+                self._write("\n... (truncated)")
+            self._write("\n```\n</details>\n\n")
 
     def log_iteration_complete(self, iteration: int, plan_complete: bool) -> None:
         """Log the completion of a workflow iteration."""
-        self._write_event("iteration_complete", {
-            "iteration": iteration,
-            "plan_complete": plan_complete,
-        })
+        if plan_complete:
+            self._write(f"**Iteration {iteration} Result:** Plan complete\n\n")
+        else:
+            self._write(f"**Iteration {iteration} Result:** Continuing to next iteration\n\n")
+        self._write("---\n\n")
 
     def log_session_end(self, success: bool, total_iterations: int) -> None:
         """Log the end of the workflow session."""
         duration = (datetime.now() - self._start_time).total_seconds()
-        self._write_event("session_end", {
-            "success": success,
-            "total_iterations": total_iterations,
-            "duration_seconds": round(duration, 2),
-        })
+        status = "SUCCESS" if success else "FAILED"
+
+        self._write("## Summary\n\n")
+        self._write(f"- **Status:** {status}\n")
+        self._write(f"- **Total Iterations:** {total_iterations}\n")
+        self._write(f"- **Duration:** {duration:.1f}s\n")
+        self._write(f"- **Ended:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
 
     def log_error(self, step_name: str, error: str) -> None:
         """Log an error during workflow execution."""
-        self._write_event("error", {
-            "step": step_name,
-            "error": error,
-        })
+        self._write(f"**ERROR in {step_name}:**\n\n```\n{error}\n```\n\n")
 
     def log_claude_output(self, step_name: str, output: str) -> None:
         """Log Claude's full output for a step."""
-        self._write_event("claude_output", {
-            "step": step_name,
-            "output": output,
-        })
+        self._write("<details>\n<summary>Full Claude Output</summary>\n\n```\n")
+        self._write(output)
+        self._write("\n```\n</details>\n\n")
 
-    def _write_event(self, event_type: str, data: dict[str, Any]) -> None:
-        """Write an event to the log file."""
-        event = {
-            "timestamp": datetime.now().isoformat(),
-            "event": event_type,
-            **data,
-        }
+    def _write(self, text: str) -> None:
+        """Append text to the log file."""
         with open(self.log_path, "a") as f:
-            f.write(json.dumps(event) + "\n")
+            f.write(text)
 
     def get_log_path(self) -> Path:
         """Return the path to the current log file."""
