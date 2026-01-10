@@ -71,6 +71,7 @@ class WorkflowExecutor:
 
             while iteration < max_iterations:
                 iteration += 1
+                self.console.new_iteration(iteration)
 
                 # Execute each step in sequence
                 for step in self.workflow.steps:

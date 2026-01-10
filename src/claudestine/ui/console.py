@@ -126,6 +126,7 @@ class Console:
         self._plan_name: str = ""
         self._total_steps: int = 0
         self._current_step_num: int = 0
+        self._current_iteration: int = 0
 
     def start(self, plan_name: str, total_steps: int) -> None:
         """
@@ -133,11 +134,12 @@ class Console:
 
         Args:
             plan_name: Name of the plan being executed.
-            total_steps: Total number of steps.
+            total_steps: Total number of steps per iteration.
         """
         self._plan_name = plan_name
         self._total_steps = total_steps
         self._current_step_num = 0
+        self._current_iteration = 1
 
         self._progress = Progress(
             SpinnerColumn(),
@@ -162,6 +164,22 @@ class Console:
         )
         self._live.start()
 
+    def new_iteration(self, iteration: int) -> None:
+        """
+        Start a new iteration, resetting step counter and progress.
+
+        Args:
+            iteration: The iteration number starting.
+        """
+        self._current_iteration = iteration
+        self._current_step_num = 0
+        self.steps.clear()
+
+        if self._progress and self._main_task is not None:
+            self._progress.reset(self._main_task)
+
+        self.refresh()
+
     def stop(self) -> None:
         """Stop the console display."""
         if self._live:
@@ -177,13 +195,13 @@ class Console:
         """Render the full display."""
         renderables = []
 
-        # Header
+        # Header with iteration and step info
         header = Table.grid(expand=True)
         header.add_column()
         header.add_column(justify="right")
         header.add_row(
             f"[bold cyan]Claudestine[/bold cyan] [dim]v0.2.0[/dim]",
-            f"[dim]Step {self._current_step_num}/{self._total_steps}[/dim]",
+            f"[dim]Iteration {self._current_iteration} | Step {self._current_step_num}/{self._total_steps}[/dim]",
         )
         renderables.append(Panel(header, border_style="cyan"))
 
