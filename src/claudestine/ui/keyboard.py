@@ -1,9 +1,14 @@
-"""Keyboard input handling for interactive controls."""
+"""Keyboard input handling for interactive controls.
 
+Uses blessed for terminal-focused input (only captures when terminal has focus),
+replacing the previous pynput implementation which captured globally.
+"""
+
+import threading
 from enum import Enum, auto
 from typing import Callable
 
-from pynput import keyboard
+from blessed import Terminal
 
 
 class KeyAction(Enum):
@@ -16,7 +21,11 @@ class KeyAction(Enum):
 
 class KeyboardController:
     """
-    Listens for keyboard input in a background thread.
+    Listens for keyboard input from the terminal.
+
+    Unlike pynput which captures globally, this only captures keypresses
+    when the terminal window has focus, preventing accidental triggers
+    from other applications.
 
     Controls:
         P - Pause execution
@@ -32,39 +41,39 @@ class KeyboardController:
             on_action: Callback when a control key is pressed.
         """
         self._on_action = on_action
-        self._listener: keyboard.Listener | None = None
+        self._terminal = Terminal()
         self._running = False
+        self._thread: threading.Thread | None = None
 
     def start(self) -> None:
-        """Start listening for keyboard input."""
+        """Start listening for keyboard input in a background thread."""
         self._running = True
-        self._listener = keyboard.Listener(on_press=self._on_press)
-        self._listener.start()
+        self._thread = threading.Thread(target=self._listen_loop, daemon=True)
+        self._thread.start()
 
     def stop(self) -> None:
         """Stop listening for keyboard input."""
         self._running = False
-        if self._listener:
-            self._listener.stop()
-            self._listener = None
+        if self._thread:
+            self._thread.join(timeout=0.5)
+            self._thread = None
 
-    def _on_press(self, key: keyboard.Key | keyboard.KeyCode | None) -> None:
-        """Handle key press events."""
-        if not self._running or key is None:
-            return
+    def _listen_loop(self) -> None:
+        """Background thread loop that listens for keypresses."""
+        with self._terminal.cbreak():
+            while self._running:
+                # Non-blocking read with 100ms timeout
+                key = self._terminal.inkey(timeout=0.1)
 
-        # Only KeyCode has char attribute, Key (special keys) does not
-        if not isinstance(key, keyboard.KeyCode):
-            return
+                if not key:
+                    continue
 
-        char = key.char
-        if char is None:
-            return
+                # Get the character (lowercase for comparison)
+                char = str(key).lower() if key else None
 
-        char = char.lower()
-        if char == "p":
-            self._on_action(KeyAction.PAUSE)
-        elif char == "c":
-            self._on_action(KeyAction.CONTINUE)
-        elif char == "m":
-            self._on_action(KeyAction.MANUAL)
+                if char == "p":
+                    self._on_action(KeyAction.PAUSE)
+                elif char == "c":
+                    self._on_action(KeyAction.CONTINUE)
+                elif char == "m":
+                    self._on_action(KeyAction.MANUAL)

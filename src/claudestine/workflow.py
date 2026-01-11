@@ -1,5 +1,6 @@
 """Workflow executor for Claudestine."""
 
+import json
 import re
 import time
 from string import Template
@@ -14,7 +15,7 @@ from claudestine.runner import (
     generate_commit_message,
     get_git_status,
 )
-from claudestine.ui.console import Console
+from claudestine.ui.console import Console, StepOutput
 from claudestine.ui.keyboard import KeyAction, KeyboardController
 
 
@@ -88,8 +89,12 @@ class WorkflowExecutor:
                 phase += 1
                 self.console.new_phase(phase)
 
-                # Execute each step in sequence
-                for step in self.workflow.steps:
+                # Execute each step in sequence using index-based loop
+                # to allow retrying interrupted steps
+                step_index = 0
+                while step_index < len(self.workflow.steps):
+                    step = self.workflow.steps[step_index]
+
                     # Check for manual mode between steps
                     if self._pending_action == KeyAction.MANUAL:
                         self._handle_manual_mode()
@@ -102,12 +107,28 @@ class WorkflowExecutor:
                             break
                         time.sleep(0.1)
 
+                    # Clear interrupted state before executing
+                    self.runner._interrupted = False
+
                     step_start = time.time()
                     self.logger.log_step_start(step.name, step.type.value, phase)
 
                     result = self._execute_step(step, phase)
 
                     step_duration = time.time() - step_start
+
+                    # Check if step was interrupted - if so, don't advance
+                    # The step will be retried when user continues
+                    if self.runner.is_interrupted():
+                        self.logger.log_step_complete(
+                            step.name,
+                            False,
+                            step_duration,
+                            "Interrupted by user",
+                        )
+                        # Don't advance step_index - will retry this step
+                        continue
+
                     self.logger.log_step_complete(
                         step.name,
                         result.success,
@@ -126,6 +147,9 @@ class WorkflowExecutor:
                             )
                             self.logger.log_session_end(False, phase)
                             return False
+
+                    # Only advance to next step on successful completion
+                    step_index += 1
 
                 # Check plan progress after each full phase
                 plan_complete = self._is_plan_complete()
@@ -166,6 +190,10 @@ class WorkflowExecutor:
 
     def _handle_manual_mode(self) -> None:
         """Get user input for manual mode and resume execution."""
+        # Stop keyboard listener to prevent input competition
+        if self._keyboard:
+            self._keyboard.stop()
+
         # Stop Rich Live temporarily for clean input
         self.console.stop()
 
@@ -178,15 +206,16 @@ class WorkflowExecutor:
         self.console.set_manual_mode(False)
         self.console.set_paused(False)
 
-        # Resume display
-        self.console.start(
-            plan_name=self.config.plan_path.name,
-            total_steps=len(self.workflow.steps),
-        )
+        # Resume display (preserves step count and phase state)
+        self.console.resume()
+
+        # Restart keyboard listener
+        if self._keyboard:
+            self._keyboard.start()
 
         if prompt:
-            # Resume with custom prompt
-            with self.console.step("Manual prompt") as output:
+            # Resume with custom prompt (transient=True so it doesn't count as a workflow step)
+            with self.console.step("Manual prompt", transient=True) as output:
                 self.runner.resume(
                     prompt=prompt,
                     output=output,
@@ -212,7 +241,6 @@ class WorkflowExecutor:
             if not line.strip():
                 continue
             try:
-                import json
                 data = json.loads(line)
                 if data.get("type") == "assistant":
                     message = data.get("message", {})
@@ -238,7 +266,6 @@ class WorkflowExecutor:
             if not line.strip():
                 continue
             try:
-                import json
                 data = json.loads(line)
 
                 if data.get("type") == "assistant":
@@ -293,13 +320,13 @@ class WorkflowExecutor:
             if step.stop_on:
                 self.console.print(f"   [dim]Stop on:[/dim] {', '.join(step.stop_on)}")
 
-    def _execute_step(self, step: Step, iteration: int = 1) -> ClaudeResult:
+    def _execute_step(self, step: Step, _iteration: int = 1) -> ClaudeResult:
         """
         Execute a single workflow step.
 
         Args:
             step: Step to execute.
-            iteration: Current workflow iteration number.
+            _iteration: Current workflow iteration number (unused, for future use).
 
         Returns:
             Result of the step execution.
@@ -320,7 +347,7 @@ class WorkflowExecutor:
                     error=f"Unknown step type: {step.type}",
                 )
 
-    def _execute_claude_step(self, step: Step, output) -> ClaudeResult:
+    def _execute_claude_step(self, step: Step, output: StepOutput) -> ClaudeResult:
         """Execute a Claude prompt step."""
         if not step.prompt:
             output.append("[red]No prompt specified[/red]")
@@ -345,7 +372,7 @@ class WorkflowExecutor:
 
         return result
 
-    def _execute_shell_step(self, step: Step, output) -> ClaudeResult:
+    def _execute_shell_step(self, step: Step, output: StepOutput) -> ClaudeResult:
         """Execute shell commands step."""
         if not step.commands:
             output.append("[red]No commands specified[/red]")
@@ -375,7 +402,7 @@ class WorkflowExecutor:
             skip_if_clean=step.skip_if_clean,
         )
 
-    def _execute_internal_step(self, step: Step, output) -> ClaudeResult:
+    def _execute_internal_step(self, step: Step, output: StepOutput) -> ClaudeResult:
         """Execute internal action step."""
         if step.action == "clear_session":
             self.runner.clear_session()
@@ -392,12 +419,13 @@ class WorkflowExecutor:
             return ClaudeResult(success=True, exit_code=0, output="")
 
         else:
-            output.append(f"[red]Unknown action: {step.action}[/red]")
+            action_name = step.action or "(none)"
+            output.append(f"[red]Unknown action: {action_name}[/red]")
             return ClaudeResult(
                 success=False,
                 exit_code=1,
                 output="",
-                error=f"Unknown action: {step.action}",
+                error=f"Unknown action: {action_name}",
             )
 
     def _substitute_variables(self, text: str) -> str:

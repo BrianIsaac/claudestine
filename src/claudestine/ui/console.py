@@ -214,6 +214,40 @@ class Console:
 
         self.refresh()
 
+    def resume(self) -> None:
+        """
+        Resume the console display after a pause.
+
+        Unlike start(), this preserves the current step count and phase state.
+        Use this when temporarily stopping the display (e.g., for user input).
+        """
+        if self._live:
+            return  # Already running
+
+        self._progress = Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]{task.description}"),
+            BarColumn(),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            TimeElapsedColumn(),
+            console=self.console,
+            expand=True,
+        )
+
+        self._main_task = self._progress.add_task(
+            f"[cyan]{self._plan_name}",
+            total=self._total_steps,
+            completed=self._current_step_num,
+        )
+
+        self._live = Live(
+            self._render(),
+            console=self.console,
+            refresh_per_second=4,
+            transient=False,
+        )
+        self._live.start()
+
     def stop(self) -> None:
         """Stop the console display."""
         if self._live:
@@ -273,17 +307,23 @@ class Console:
         return Group(*renderables)
 
     @contextmanager
-    def step(self, name: str) -> Generator[StepOutput, None, None]:
+    def step(
+        self, name: str, *, transient: bool = False
+    ) -> Generator[StepOutput, None, None]:
         """
         Context manager for a workflow step.
 
         Args:
             name: Step name.
+            transient: If True, don't increment step counter or progress bar.
+                Use for ad-hoc steps like manual prompts that shouldn't count
+                towards workflow progress.
 
         Yields:
             StepOutput instance to collect output.
         """
-        self._current_step_num += 1
+        if not transient:
+            self._current_step_num += 1
 
         step_output = StepOutput(name, self)
         self.steps.append(step_output)
@@ -305,8 +345,19 @@ class Console:
             step_output.set_status("failed")
             raise
         finally:
-            if self._progress and self._main_task is not None:
+            # Check if step was interrupted (process killed by user)
+            interrupted = self._runner and self._runner.is_interrupted()
+
+            if interrupted and not transient:
+                # Rollback counter so retry shows same step number
+                self._current_step_num -= 1
+                step_output.set_status("interrupted")
+            elif interrupted:
+                step_output.set_status("interrupted")
+            elif self._progress and self._main_task is not None and not transient:
+                # Only advance progress on successful completion
                 self._progress.advance(self._main_task)
+
             self.current_step = None
 
     def print(self, message: str, style: str | None = None) -> None:

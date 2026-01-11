@@ -185,7 +185,7 @@ def _interactive_mode():
     # Edit workflow if requested
     if edit_workflow:
         yaml_content = workflow.to_yaml()
-        edited = editor.edit(contents=yaml_content.encode())
+        edited = editor.editor(text=yaml_content)
         if edited:
             import yaml
             workflow = Workflow(**yaml.safe_load(edited))
@@ -407,7 +407,7 @@ def run(
     # Edit workflow if requested
     if edit:
         yaml_content = workflow.to_yaml()
-        edited = editor.edit(contents=yaml_content.encode())
+        edited = editor.editor(text=yaml_content)
         workflow = Workflow(**__import__("yaml").safe_load(edited))
 
     config = RunConfig(
@@ -456,7 +456,8 @@ def workflow_show(
         workflow = load_workflow(working_dir)
         workflow_path = find_workflow(working_dir)
 
-        console.print(f"[dim]Source: {workflow_path}[/dim]\n")
+        if workflow_path:
+            console.print(f"[dim]Source: {workflow_path}[/dim]\n")
         console.print(Syntax(workflow.to_yaml(), "yaml", theme="monokai"))
 
     except FileNotFoundError:
@@ -498,7 +499,7 @@ def workflow_edit(
 
     # Open in editor
     yaml_content = workflow.to_yaml()
-    edited = editor.edit(contents=yaml_content.encode())
+    edited = editor.editor(text=yaml_content)
 
     if edited:
         # Validate and save
