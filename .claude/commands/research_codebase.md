@@ -15,6 +15,7 @@ You are tasked with conducting comprehensive research across the codebase to ans
 - DO NOT recommend refactoring, optimization, or architectural changes
 - ONLY describe what exists, where it exists, how it works, and how components interact
 - You are creating a technical map/documentation of the existing system
+- **IF INSTRUCTED NOT TO CREATE A MARKDOWN FILE**: Skip steps 5-8 (metadata gathering, document generation, permalinks, sync). Keep findings in context only for the next workflow step.
 
 ## Initial Setup:
 

@@ -1,0 +1,88 @@
+name: Create Plan
+version: 1
+description: Create and verify implementation plans with codebase grounding
+
+steps:
+  - name: research
+    type: claude
+    prompt: |
+      /research_codebase {research_topic}
+
+      Use codebase-locator, codebase-analyzer, and codebase-pattern-finder subagents
+      to thoroughly research the codebase. Do not create a markdown file - just research
+      and keep findings in context for the next step.
+    stream: true
+    first_phase_only: true
+
+  - name: outline_plan
+    type: claude
+    prompt: |
+      /create_plan for the research done.
+
+      Context: {context}
+
+      Create a detailed implementation plan based on the research findings.
+      Ensure all claims about the codebase are grounded in the research.
+    stream: true
+    first_phase_only: true
+
+  - name: write_plan
+    type: claude
+    prompt: |
+      The plan structure looks good. Now write the complete plan to a file.
+
+      Save to {plan_directory}/ with a meaningful filename based on the research topic.
+      Use format: YYYY-MM-DD-description.md (e.g., 2026-01-12-security-hardening.md)
+
+      Write the full plan now - do not ask for more feedback. Include all phases,
+      success criteria, and code references from the research.
+    stream: true
+    first_phase_only: true
+
+  - name: clear
+    type: internal
+    action: clear_session
+
+  - name: verify
+    type: claude
+    prompt: |
+      Find the most recently created .md file in {plan_directory}/ and read it.
+      This is the plan that was just created.
+
+      Verify each factual claim about the codebase using codebase-locator and
+      codebase-analyzer subagents. Check that referenced files, functions,
+      and behaviours actually exist as described.
+
+      Report:
+      - Verified claims (with file:line evidence)
+      - Unverified claims (what was searched, what was found instead)
+      - Conflicts (expected vs actual)
+
+      Be thorough - check architecture claims, file existence, function behaviour.
+
+      IMPORTANT: If ALL claims are verified and no issues found:
+      - Add "## Status: Verified" at the top of the plan file
+      - This signals completion and stops the workflow
+
+      If ANY claims are unverified or have conflicts:
+      - Do NOT add the verified status
+      - Just report the issues (the next step will fix them)
+    stream: true
+
+  - name: update
+    type: claude
+    prompt: |
+      Find the most recently created .md file in {plan_directory}/.
+
+      Check if it already has "## Status: Verified" at the top.
+      If yes, do nothing - the plan is complete.
+
+      If no verified status:
+      - The previous step found issues that need fixing
+      - Update the plan to fix inaccuracies and wrong assumptions
+      - Do NOT add verified status - let the verify step do that on the next loop
+    stream: true
+
+  - name: clear_loop
+    type: internal
+    action: clear_session

@@ -46,11 +46,12 @@ class WorkflowExecutor:
 
         # Set up logging
         log_dir = get_project_config_dir(config.working_dir)
-        self.logger = WorkflowLogger(log_dir, config.plan_path.name)
+        log_name = config.plan_path.name if config.plan_path else "create-plan"
+        self.logger = WorkflowLogger(log_dir, log_name)
 
         # Variables available for template substitution
         self.variables = {
-            "plan_path": str(config.plan_path),
+            "plan_path": str(config.plan_path) if config.plan_path else "",
             "working_dir": str(config.working_dir),
             **workflow.variables,
         }
@@ -69,8 +70,9 @@ class WorkflowExecutor:
         # Count total phases in plan
         total_phases = self._count_phases()
 
+        plan_name = self.config.plan_path.name if self.config.plan_path else "Creating new plan"
         self.console.start(
-            plan_name=self.config.plan_path.name,
+            plan_name=plan_name,
             total_steps=len(self.workflow.steps),
         )
         self.console.set_total_phases(total_phases)
@@ -94,6 +96,11 @@ class WorkflowExecutor:
                 step_index = 0
                 while step_index < len(self.workflow.steps):
                     step = self.workflow.steps[step_index]
+
+                    # Skip first_phase_only steps after phase 1
+                    if step.first_phase_only and phase > 1:
+                        step_index += 1
+                        continue
 
                     # Check for manual mode between steps
                     if self._pending_action == KeyAction.MANUAL:
@@ -223,6 +230,8 @@ class WorkflowExecutor:
 
     def _count_phases(self) -> int:
         """Count the number of phases in the plan file."""
+        if not self.config.plan_path:
+            return 0
         try:
             content = self.config.plan_path.read_text()
             # Count "## Phase X" headers
@@ -441,10 +450,29 @@ class WorkflowExecutor:
 
     def _is_plan_complete(self) -> bool:
         """Check if the plan file indicates completion."""
+        plan_path = self.config.plan_path
+
+        # For create mode, try to find the created plan from plan_directory
+        if not plan_path and "plan_directory" in self.variables:
+            from pathlib import Path
+            plan_dir = Path(self.variables["plan_directory"])
+            if plan_dir.exists():
+                plans = sorted(plan_dir.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True)
+                if plans:
+                    plan_path = plans[0]
+                    # Update variables so verify/update steps can use it
+                    self.variables["plan_path"] = str(plan_path)
+
+        if not plan_path:
+            return False
+
         try:
-            content = self.config.plan_path.read_text()
+            content = plan_path.read_text()
             # Check for 100% progress or all phases complete
             if "100%" in content:
+                return True
+            # Check for verification complete marker (for create mode)
+            if "## Status: Verified" in content:
                 return True
             # Count completed vs total phases
             completed = len(re.findall(r"\*\*Status:\*\*\s*complete", content, re.I))

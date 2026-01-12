@@ -36,6 +36,7 @@ class Step(BaseModel):
     require_success: bool = False
     skip_if_clean: bool = False
     allowed_tools: list[str] | None = None
+    first_phase_only: bool = False
 
 
 class Workflow(BaseModel):
@@ -75,7 +76,7 @@ class Workflow(BaseModel):
 class RunConfig(BaseModel):
     """Configuration for a single run."""
 
-    plan_path: Path
+    plan_path: Path | None = None
     working_dir: Path
     workflow_path: Path | None = None
     auto_push: bool = True

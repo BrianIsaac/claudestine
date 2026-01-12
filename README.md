@@ -1,6 +1,6 @@
 # Claudestine
 
-Automated plan implementation orchestrator for Claude Code.
+Automated plan creation and implementation orchestrator for Claude Code.
 
 ## Why Claudestine?
 
@@ -12,37 +12,63 @@ When implementing large features with Claude Code, **context management becomes 
 
 The typical approach is to one-shot an entire plan, but this fails for larger implementations.
 
-Claudestine solves this by **managing context during plan implementation**. You still create and iterate on plans using the included `/create_plan` slash command (or manually), but when it's time to implement, Claudestine executes phase by phase:
+Claudestine solves this by **managing context at two key stages**:
 
-1. Implements a single phase from the plan
-2. Runs automated verification (Playwright, pytest, etc.)
-3. Updates the plan summary for session continuity
-4. Commits changes and clears the session
-5. Loops back with fresh context for the next phase
+1. **Plan Creation** - Research the codebase, create a grounded implementation plan, and verify all claims before you start coding
+2. **Plan Implementation** - Execute phase by phase with automatic context clearing between phases
 
-The result: Claude always operates within reasonable context limits while maintaining continuity across the full implementation through the plan file.
+For both stages, Claudestine orchestrates Claude Code sessions, managing context so you get consistent quality throughout.
 
 ## Features
 
-- **Phase-by-phase execution** - Implements one phase at a time, loops automatically
+- **Plan creation with verification** - Research codebase, create plan, verify all claims before coding
+- **Phase-by-phase implementation** - Implements one phase at a time, loops automatically
 - **Real-time streaming output** - See Claude's responses as they happen
 - **Context window tracking** - Header shows `Context: 45k/200k (22.5%)` in real-time
 - **Full tool visibility** - See exactly what Claude is doing (file paths, commands, diffs)
 - **Interactive controls** - Press P to pause, C to continue, M for manual override
 - **Phase tracking** - UI shows `Phase 1/2 | Step 3/5`
 - **Readable logs** - Markdown logs with collapsible sections in `.claudestine/logs/`
-- **Configurable workflow** - YAML-based, editable before execution
+- **Configurable workflows** - YAML-based, separate workflows for create and implement
 - **Auto verification** - Playwright MCP, pytest, Docker health checks
 - **Conventional commits** - No Claude watermark
 - **Interactive mode** - Plan and workflow selection with prompts
 
 ## Overview
 
-Claudestine wraps Claude Code and automates the implementation loop. The default workflow (what I typically use) looks like this, but [custom workflows](#configuration) can be configured:
+Claudestine wraps Claude Code and automates two key workflows. [Custom workflows](#configuration) can be configured.
+
+### Create Mode
+
+Creates a verified implementation plan grounded in actual codebase research:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    CLAUDESTINE LOOP                         │
+│                   CREATE PLAN WORKFLOW                      │
+├─────────────────────────────────────────────────────────────┤
+│  Phase 1 (once):                                            │
+│  1. Research codebase using subagents                       │
+│     └─> codebase-locator, codebase-analyzer, etc.           │
+│  2. Outline implementation plan from research               │
+│  3. Write plan to file with meaningful name                 │
+│  4. Clear session                                           │
+├─────────────────────────────────────────────────────────────┤
+│  Verification loop (until verified):                        │
+│  5. Verify all claims against codebase                      │
+│     └─> If all verified: add "## Status: Verified"          │
+│     └─> If issues found: report them                        │
+│  6. Update plan to fix inaccuracies (if needed)             │
+│  7. Clear session, loop back to step 5                      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Implement Mode
+
+Executes a plan phase by phase with context clearing between phases:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                  IMPLEMENT PLAN WORKFLOW                    │
 │                  (runs per phase in plan)                   │
 ├─────────────────────────────────────────────────────────────┤
 │  1. Implement next phase from plan                          │
@@ -60,6 +86,8 @@ Claudestine wraps Claude Code and automates the implementation loop. The default
 │  5. Clear session, loop back to step 1                      │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+> **Note:** Even with automated implementation, you should still read and understand the plan before running it. The plan documents what will change in your codebase - review it to ensure it aligns with your intentions and catch any issues before code is written.
 
 ## Installation
 
@@ -91,23 +119,25 @@ uv tool install ./claudestine
 
 ### Interactive Mode (Recommended)
 
-Navigate to any project with a plan file and run:
+Navigate to any project and run:
 
 ```bash
 cd ~/Documents/personal/my-project
 claudestine
 ```
 
-This launches interactive mode where you can:
-1. Select a plan from auto-discovered `.md` files
-2. Choose a workflow (default, project, global, or custom)
-3. Configure options (auto-push, etc.)
-4. Start execution
+This launches interactive mode where you:
+1. Choose mode: **Create** a new plan or **Implement** an existing one
+2. For create mode: enter research topic and context
+3. For implement mode: select a plan from auto-discovered `.md` files
+4. Choose a workflow (default, project, global, or custom)
+5. Configure options (auto-push, etc.)
+6. Start execution
 
 ### Direct Mode
 
 ```bash
-# Run with default workflow
+# Implement an existing plan
 claudestine run path/to/plan.md
 
 # Edit workflow before running
@@ -232,9 +262,9 @@ claudestine workflow edit
 claudestine workflow reset
 ```
 
-### Default Workflow
+### Default Workflow (Implement Mode)
 
-The default workflow runs these Claude prompts per phase:
+The default implementation workflow runs these Claude prompts per phase:
 
 ```yaml
 name: Implementation Loop
@@ -277,6 +307,64 @@ steps:
     action: clear_session
 ```
 
+### Create Plan Workflow
+
+The create workflow researches, creates, and verifies a plan:
+
+```yaml
+name: Create Plan
+version: 1
+
+steps:
+  # Phase 1 only - research and create
+  - name: research
+    type: claude
+    prompt: |
+      /research_codebase {research_topic}
+      Use codebase-locator, codebase-analyzer, and codebase-pattern-finder
+      subagents to thoroughly research the codebase.
+    first_phase_only: true
+
+  - name: outline_plan
+    type: claude
+    prompt: |
+      /create_plan for the research done.
+      Context: {context}
+      Create a detailed implementation plan based on the research findings.
+    first_phase_only: true
+
+  - name: write_plan
+    type: claude
+    prompt: |
+      Write the complete plan to {plan_directory}/ with a meaningful filename.
+      Use format: YYYY-MM-DD-description.md
+    first_phase_only: true
+
+  - name: clear
+    type: internal
+    action: clear_session
+
+  # Verification loop
+  - name: verify
+    type: claude
+    prompt: |
+      Find the most recently created .md file in {plan_directory}/.
+      Verify each factual claim about the codebase.
+      If ALL claims verified: add "## Status: Verified" at the top.
+      If issues found: report them for the next step to fix.
+
+  - name: update
+    type: claude
+    prompt: |
+      Find the plan in {plan_directory}/.
+      If already verified, do nothing.
+      Otherwise, fix inaccuracies based on the verification report.
+
+  - name: clear_loop
+    type: internal
+    action: clear_session
+```
+
 ### Step Types
 
 | Type | Description |
@@ -285,13 +373,26 @@ steps:
 | `shell` | Run shell commands directly |
 | `internal` | Internal actions (clear_session) |
 
+### Step Options
+
+| Option | Description |
+|--------|-------------|
+| `first_phase_only` | Only run this step in phase 1 (useful for setup steps) |
+| `require_success` | Fail workflow if this step fails |
+| `skip_if_clean` | Skip shell step if git working tree is clean |
+| `stream` | Stream Claude output in real-time (default: true) |
+| `stop_on` | List of patterns that trigger step completion |
+
 ### Variables
 
 Available in prompts and commands:
 
 | Variable | Description |
 |----------|-------------|
-| `{plan_path}` | Full path to the plan file |
+| `{plan_path}` | Full path to the plan file (implement mode) |
+| `{plan_directory}` | Directory for plan output (create mode) |
+| `{research_topic}` | Research topic input (create mode) |
+| `{context}` | Additional context input (create mode) |
 | `{working_dir}` | Working directory |
 
 ## Credits
